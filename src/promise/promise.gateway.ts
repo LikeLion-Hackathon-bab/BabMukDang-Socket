@@ -19,6 +19,10 @@ import type {
   LeaveRoomPayload,
   RequestPhaseChangePayload,
 } from './types';
+import { RoomService } from './services/room.service';
+import { ChatService } from './services/chat.service';
+import { PhaseService } from './services/phase.service';
+import { GuardService } from './services/guard.service';
 
 @WebSocketGateway({
   cors: {
@@ -30,17 +34,15 @@ import type {
 export class PromiseGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
+  constructor(
+    private readonly roomService: RoomService,
+    private readonly chatService: ChatService,
+    private readonly phaseService: PhaseService,
+    private readonly guardService: GuardService,
+  ) {}
+
   @WebSocketServer()
   server: Server;
-
-  // 방별 참가자 관리 (메모리 저장소)
-  private rooms: Map<string, Set<UserInfo>> = new Map();
-
-  // Socket ID와 UserInfo 매핑
-  private socketToUser: Map<string, UserInfo> = new Map();
-
-  // Socket ID와 방 ID 매핑
-  private socketToRoom: Map<string, string> = new Map();
 
   handleConnection(client: Socket) {
     console.log(`Client connected: ${client.id}`);
@@ -50,20 +52,13 @@ export class PromiseGateway
     console.log(`Client disconnected: ${client.id}`);
 
     // 연결이 끊어진 클라이언트의 방에서 제거
-    const roomId = this.socketToRoom.get(client.id);
-    const userInfo = this.socketToUser.get(client.id);
-
-    if (roomId && userInfo) {
-      this.leaveRoom(client, {
-        userId: userInfo.userId,
-        nickname: userInfo.nickname,
-        roomId,
-      });
+    const userInfo = this.roomService.removeUserFromAnyRoom(client.id);
+    if (userInfo) {
+      const roomId = this.roomService.getUserRoomId(client.id);
+      if (roomId) {
+        this.roomService.removeUserFromRoom(roomId, client.id);
+      }
     }
-
-    // 매핑 정보 정리
-    this.socketToUser.delete(client.id);
-    this.socketToRoom.delete(client.id);
   }
 
   @SubscribeMessage('join-room')
@@ -74,20 +69,25 @@ export class PromiseGateway
     const { userId, nickname, roomId } = payload;
     const userInfo: UserInfo = { userId, nickname };
 
+    // 권한 확인
+    const permissionCheck = this.guardService.canJoinRoom(
+      roomId,
+      userInfo,
+      this.roomService,
+    );
+    if (!permissionCheck.allowed) {
+      console.log(`Join room denied: ${permissionCheck.reason}`);
+      return;
+    }
+
     // 기존 방에서 제거 (중복 join 방지)
-    const existingRoomId = this.socketToRoom.get(client.id);
+    const existingRoomId = this.roomService.getUserRoomId(client.id);
     if (existingRoomId && existingRoomId !== roomId) {
-      this.leaveRoom(client, { userId, nickname, roomId: existingRoomId });
+      this.roomService.removeUserFromRoom(existingRoomId, client.id);
     }
 
     // 새 방에 참가
-    if (!this.rooms.has(roomId)) {
-      this.rooms.set(roomId, new Set());
-    }
-
-    this.rooms.get(roomId)!.add(userInfo);
-    this.socketToUser.set(client.id, userInfo);
-    this.socketToRoom.set(client.id, roomId);
+    this.roomService.addUserToRoom(roomId, client.id, userInfo);
 
     // 방에 참가
     client.join(roomId);
@@ -103,7 +103,25 @@ export class PromiseGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: LeaveRoomPayload,
   ) {
-    this.leaveRoom(client, payload);
+    const { userId, nickname, roomId } = payload;
+
+    // 권한 확인
+    const permissionCheck = this.guardService.canLeaveRoom(
+      roomId,
+      client.id,
+      this.roomService,
+    );
+    if (!permissionCheck.allowed) {
+      console.log(`Leave room denied: ${permissionCheck.reason}`);
+      return;
+    }
+
+    const userInfo = this.roomService.removeUserFromRoom(roomId, client.id);
+    if (userInfo) {
+      client.leave(roomId);
+      client.to(roomId).emit('leave-room', userInfo);
+      console.log(`User ${nickname} left room ${roomId}`);
+    }
   }
 
   @SubscribeMessage('chat-message')
@@ -111,10 +129,24 @@ export class PromiseGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: ChatMessage,
   ) {
-    const roomId = this.socketToRoom.get(client.id);
+    const roomId = this.roomService.getUserRoomId(client.id);
     if (!roomId) {
       return;
     }
+
+    // 권한 확인
+    const permissionCheck = this.guardService.canSendChatMessage(
+      client.id,
+      payload.senderId,
+      this.roomService,
+    );
+    if (!permissionCheck.allowed) {
+      console.log(`Chat message denied: ${permissionCheck.reason}`);
+      return;
+    }
+
+    // 채팅 서비스에 메시지 저장
+    this.chatService.addMessage(roomId, payload);
 
     // 방의 모든 클라이언트에게 채팅 메시지 브로드캐스트
     client.to(roomId).emit('chat', payload);
@@ -128,21 +160,46 @@ export class PromiseGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: RequestPhaseChangePayload,
   ) {
-    const roomId = this.socketToRoom.get(client.id);
+    const roomId = this.roomService.getUserRoomId(client.id);
     if (!roomId) {
       return;
     }
 
-    // TODO: 단계 변경 로직 구현
-    const phaseChangeBroadcast: PhaseChangeBroadcast = {
-      next: [payload.requester],
-    };
-
-    // 방의 모든 클라이언트에게 단계 변경 브로드캐스트
-    this.server.to(roomId).emit('phase-change', phaseChangeBroadcast);
-    console.log(
-      `Phase change requested by ${payload.requester.nickname} in room ${roomId}`,
+    // 권한 확인
+    const permissionCheck = this.guardService.canRequestPhaseChange(
+      client.id,
+      payload.requester.userId,
+      this.roomService,
     );
+    if (!permissionCheck.allowed) {
+      console.log(`Phase change request denied: ${permissionCheck.reason}`);
+      return;
+    }
+
+    // 현재 단계 가져오기
+    const currentPhase = this.roomService.getRoomPhase(roomId);
+
+    // 단계 변경 요청 처리
+    const result = this.phaseService.requestPhaseChange(
+      roomId,
+      payload.requester,
+      payload.targetPhase,
+      currentPhase,
+    );
+
+    if (result.success) {
+      // 방의 모든 클라이언트에게 단계 변경 브로드캐스트
+      this.server.to(roomId).emit('phase-change', result.broadcast);
+
+      // 방의 단계 업데이트
+      this.roomService.setRoomPhase(roomId, payload.targetPhase);
+
+      console.log(
+        `Phase change approved: ${currentPhase} -> ${payload.targetPhase} by ${payload.requester.nickname} in room ${roomId}`,
+      );
+    } else {
+      console.log(`Phase change denied: ${result.reason}`);
+    }
   }
 
   @SubscribeMessage('update-phase-data')
@@ -150,42 +207,51 @@ export class PromiseGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: Partial<PhaseDataBroadcastPayload>,
   ) {
-    const roomId = this.socketToRoom.get(client.id);
-    const userInfo = this.socketToUser.get(client.id);
-
-    if (!roomId || !userInfo) {
+    const roomId = this.roomService.getUserRoomId(client.id);
+    if (!roomId) {
       return;
     }
 
-    // TODO: 데이터 검증 및 업데이트 로직 구현
-    // TODO: GuardService를 통한 본인 데이터만 수정 가능하도록 제어
-
-    // 방의 모든 클라이언트에게 단계 데이터 동기화
-    this.server.to(roomId).emit('phase-data', payload);
-    console.log(`Phase data updated by ${userInfo.nickname} in room ${roomId}`);
-  }
-
-  private leaveRoom(client: Socket, payload: LeaveRoomPayload) {
-    const { userId, nickname, roomId } = payload;
-    const userInfo: UserInfo = { userId, nickname };
-
-    // 방에서 유저 제거
-    const room = this.rooms.get(roomId);
-    if (room) {
-      room.delete(userInfo);
-
-      // 방이 비어있으면 방 삭제
-      if (room.size === 0) {
-        this.rooms.delete(roomId);
-      }
+    // 사용자 정보 가져오기
+    const room = this.roomService.createOrGetRoom(roomId);
+    const userInfo = room.users.get(client.id);
+    if (!userInfo) {
+      return;
     }
 
-    // 방에서 나가기
-    client.leave(roomId);
+    // 권한 확인
+    const permissionCheck = this.guardService.canModifyPhaseData(
+      client.id,
+      userInfo.userId,
+      this.roomService,
+    );
+    if (!permissionCheck.allowed) {
+      console.log(`Phase data update denied: ${permissionCheck.reason}`);
+      return;
+    }
 
-    // 방의 모든 클라이언트에게 유저 퇴장 브로드캐스트
-    client.to(roomId).emit('leave-room', userInfo);
+    // 데이터 검증 및 정리
+    const sanitizedData = this.phaseService.sanitizePhaseData(
+      payload.data || {},
+    );
 
-    console.log(`User ${nickname} left room ${roomId}`);
+    // 현재 단계 데이터와 병합
+    const currentPhaseData = this.roomService.getRoomPhaseData(roomId);
+    const mergedData = this.phaseService.mergePhaseData(
+      currentPhaseData,
+      sanitizedData,
+    );
+
+    // 방의 단계 데이터 업데이트
+    this.roomService.updateRoomPhaseData(roomId, mergedData);
+
+    // 방의 모든 클라이언트에게 단계 데이터 동기화
+    const broadcastPayload: PhaseDataBroadcastPayload = {
+      phase: this.roomService.getRoomPhase(roomId),
+      data: mergedData,
+    };
+
+    this.server.to(roomId).emit('phase-data', broadcastPayload);
+    console.log(`Phase data updated by ${userInfo.nickname} in room ${roomId}`);
   }
 }
