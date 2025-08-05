@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Server } from 'socket.io';
 import { UserInfo, PhaseDataBroadcastPayload } from '../types';
+import { ExtendedSocket } from '../types/socket.types';
 
 export interface RoomState {
-  users: Map<string, UserInfo>;
   phase: number;
   phaseData: PhaseDataBroadcastPayload['data'];
   createdAt: Date;
@@ -13,11 +14,8 @@ export interface RoomState {
 export class RoomService {
   private readonly logger = new Logger(RoomService.name);
 
-  // 방별 상태 관리 (메모리 저장소)
+  // 방별 상태 관리 (Socket.IO가 제공하지 않는 정보만 저장)
   private rooms: Map<string, RoomState> = new Map();
-
-  // 사용자별 방 매핑 (socketId -> roomId)
-  private userToRoom: Map<string, string> = new Map();
 
   /**
    * 방 생성 또는 기존 방 반환
@@ -25,7 +23,6 @@ export class RoomService {
   createOrGetRoom(roomId: string): RoomState {
     if (!this.rooms.has(roomId)) {
       const newRoom: RoomState = {
-        users: new Map(),
         phase: 1, // 기본 단계
         phaseData: {},
         createdAt: new Date(),
@@ -38,17 +35,23 @@ export class RoomService {
   }
 
   /**
-   * 사용자를 방에 추가
+   * 사용자를 방에 추가 (Socket.IO room membership + 사용자 정보 저장)
    */
-  addUserToRoom(roomId: string, socketId: string, userInfo: UserInfo): boolean {
+  addUserToRoom(
+    server: Server,
+    roomId: string,
+    socket: ExtendedSocket,
+    userInfo: UserInfo,
+  ): boolean {
+    // Socket.IO room에 참가
+    socket.join(roomId);
+
+    // 사용자 정보를 socket.data에 저장
+    socket.data.userInfo = userInfo;
+    socket.data.roomId = roomId;
+
+    // 방 상태 업데이트
     const room = this.createOrGetRoom(roomId);
-
-    // 기존 방에서 사용자 제거 (중복 방지)
-    this.removeUserFromAnyRoom(socketId);
-
-    // 새 방에 사용자 추가
-    room.users.set(socketId, userInfo);
-    this.userToRoom.set(socketId, roomId);
     room.lastActivity = new Date();
 
     this.logger.log(
@@ -60,27 +63,35 @@ export class RoomService {
   /**
    * 사용자를 방에서 제거
    */
-  removeUserFromRoom(roomId: string, socketId: string): UserInfo | null {
-    const room = this.rooms.get(roomId);
-    if (!room) {
-      return null;
-    }
-
-    const userInfo = room.users.get(socketId);
+  removeUserFromRoom(
+    server: Server,
+    roomId: string,
+    socket: ExtendedSocket,
+  ): UserInfo | null {
+    const userInfo = socket.data.userInfo;
     if (!userInfo) {
       return null;
     }
 
-    room.users.delete(socketId);
-    this.userToRoom.delete(socketId);
-    room.lastActivity = new Date();
+    // Socket.IO room에서 나가기
+    socket.leave(roomId);
+
+    // socket.data 정리
+    delete socket.data.userInfo;
+    delete socket.data.roomId;
+
+    // 방 상태 업데이트
+    const room = this.rooms.get(roomId);
+    if (room) {
+      room.lastActivity = new Date();
+    }
 
     this.logger.log(
       `User ${userInfo.nickname} (${userInfo.userId}) removed from room ${roomId}`,
     );
 
     // 방이 비어있으면 방 삭제
-    if (room.users.size === 0) {
+    if (this.getRoomUserCount(server, roomId) === 0) {
       this.rooms.delete(roomId);
       this.logger.log(`Room ${roomId} deleted (no users remaining)`);
     }
@@ -91,23 +102,44 @@ export class RoomService {
   /**
    * 사용자를 현재 방에서 제거 (방 ID 모를 때)
    */
-  removeUserFromAnyRoom(socketId: string): UserInfo | null {
-    const roomId = this.userToRoom.get(socketId);
+  removeUserFromAnyRoom(
+    server: Server,
+    socket: ExtendedSocket,
+  ): UserInfo | null {
+    const roomId = socket.data.roomId;
     if (!roomId) {
       return null;
     }
-    return this.removeUserFromRoom(roomId, socketId);
+    return this.removeUserFromRoom(server, roomId, socket);
   }
 
   /**
-   * 방의 모든 사용자 목록 반환
+   * 방의 모든 사용자 목록 반환 (Socket.IO adapter 활용)
    */
-  getRoomUsers(roomId: string): UserInfo[] {
-    const room = this.rooms.get(roomId);
+  getRoomUsers(server: Server, roomId: string): UserInfo[] {
+    const room = server.sockets.adapter.rooms.get(roomId);
     if (!room) {
       return [];
     }
-    return Array.from(room.users.values());
+
+    const users: UserInfo[] = [];
+    for (const socketId of room) {
+      const socket = server.sockets.sockets.get(socketId) as
+        | ExtendedSocket
+        | undefined;
+      if (socket?.data.userInfo) {
+        users.push(socket.data.userInfo);
+      }
+    }
+    return users;
+  }
+
+  /**
+   * 방의 사용자 수 반환 (Socket.IO adapter 활용)
+   */
+  getRoomUserCount(server: Server, roomId: string): number {
+    const room = server.sockets.adapter.rooms.get(roomId);
+    return room?.size || 0;
   }
 
   /**
@@ -162,29 +194,36 @@ export class RoomService {
   }
 
   /**
-   * 방 존재 여부 확인
+   * 방 존재 여부 확인 (Socket.IO adapter 활용)
    */
-  roomExists(roomId: string): boolean {
-    return this.rooms.has(roomId);
+  roomExists(server: Server, roomId: string): boolean {
+    return server.sockets.adapter.rooms.has(roomId);
   }
 
   /**
-   * 사용자가 방에 있는지 확인
+   * 사용자가 방에 있는지 확인 (Socket.IO adapter 활용)
    */
-  isUserInRoom(roomId: string, socketId: string): boolean {
-    const room = this.rooms.get(roomId);
-    return room?.users.has(socketId) || false;
+  isUserInRoom(server: Server, roomId: string, socketId: string): boolean {
+    const room = server.sockets.adapter.rooms.get(roomId);
+    return room?.has(socketId) || false;
   }
 
   /**
-   * 사용자의 현재 방 ID 반환
+   * 사용자의 현재 방 ID 반환 (socket.data 활용)
    */
-  getUserRoomId(socketId: string): string | null {
-    return this.userToRoom.get(socketId) || null;
+  getUserRoomId(socket: ExtendedSocket): string | null {
+    return socket.data.roomId || null;
   }
 
   /**
-   * 모든 방 목록 반환 (디버깅용)
+   * 사용자 정보 반환 (socket.data 활용)
+   */
+  getUserInfo(socket: ExtendedSocket): UserInfo | null {
+    return socket.data.userInfo || null;
+  }
+
+  /**
+   * 모든 방 목록 반환
    */
   getAllRooms(): Map<string, RoomState> {
     return this.rooms;
@@ -193,7 +232,10 @@ export class RoomService {
   /**
    * 방 통계 정보 반환
    */
-  getRoomStats(roomId: string): {
+  getRoomStats(
+    server: Server,
+    roomId: string,
+  ): {
     userCount: number;
     phase: number;
     createdAt: Date;
@@ -205,7 +247,7 @@ export class RoomService {
     }
 
     return {
-      userCount: room.users.size,
+      userCount: this.getRoomUserCount(server, roomId),
       phase: room.phase,
       createdAt: room.createdAt,
       lastActivity: room.lastActivity,
@@ -215,13 +257,19 @@ export class RoomService {
   /**
    * 비활성 방 정리 (메모리 관리용)
    */
-  cleanupInactiveRooms(maxInactiveMinutes: number = 60): number {
+  cleanupInactiveRooms(
+    server: Server,
+    maxInactiveMinutes: number = 60,
+  ): number {
     const now = new Date();
     const cutoffTime = new Date(now.getTime() - maxInactiveMinutes * 60 * 1000);
     let cleanedCount = 0;
 
     for (const [roomId, room] of this.rooms.entries()) {
-      if (room.lastActivity < cutoffTime && room.users.size === 0) {
+      if (
+        room.lastActivity < cutoffTime &&
+        this.getRoomUserCount(server, roomId) === 0
+      ) {
         this.rooms.delete(roomId);
         cleanedCount++;
         this.logger.log(`Cleaned up inactive room: ${roomId}`);
@@ -229,5 +277,19 @@ export class RoomService {
     }
 
     return cleanedCount;
+  }
+
+  /**
+   * Socket.IO room에 직접 메시지 전송
+   */
+  emitToRoom(server: Server, roomId: string, event: string, data: any): void {
+    server.to(roomId).emit(event, data);
+  }
+
+  /**
+   * 특정 사용자에게 메시지 전송
+   */
+  emitToUser(server: Server, socketId: string, event: string, data: any): void {
+    server.to(socketId).emit(event, data);
   }
 }

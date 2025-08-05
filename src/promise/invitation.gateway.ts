@@ -8,7 +8,7 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { UseGuards, UseInterceptors } from '@nestjs/common';
-import { Server, Socket } from 'socket.io';
+import { Server } from 'socket.io';
 import { UserInfo } from './types';
 import type { ChatMessage, RequestPhaseChangePayload } from './types';
 import { RoomService } from './services/room.service';
@@ -18,6 +18,7 @@ import { GuardService } from './services/guard.service';
 import { RoomAccessGuard, UserOwnershipGuard } from './guards';
 import { LoggingInterceptor, DataOwnershipInterceptor } from './interceptors';
 import { UserInfoDto, RoomIdDto, PhaseDataDto } from './dto';
+import type { ExtendedSocket } from './types/socket.types';
 
 @WebSocketGateway({
   namespace: '/invitation',
@@ -40,7 +41,7 @@ export class InvitationGateway
   @WebSocketServer()
   server: Server;
 
-  handleConnection(client: Socket) {
+  handleConnection(client: ExtendedSocket) {
     const roomId = client.handshake.query.roomId as string;
     if (!roomId) {
       console.log(`[invitation] Client connected without roomId`);
@@ -50,32 +51,34 @@ export class InvitationGateway
     console.log(`[invitation] Client connected: ${client.id}`);
   }
 
-  handleDisconnect(client: Socket) {
+  handleDisconnect(client: ExtendedSocket) {
     console.log(`[invitation] Client disconnected: ${client.id}`);
-    const userInfo = this.roomService.removeUserFromAnyRoom(client.id);
+    const userInfo = this.roomService.removeUserFromAnyRoom(
+      this.server,
+      client,
+    );
     if (userInfo) {
-      const roomId = this.roomService.getUserRoomId(client.id);
+      const roomId = this.roomService.getUserRoomId(client);
       if (roomId) {
-        this.roomService.removeUserFromRoom(roomId, client.id);
+        this.roomService.removeUserFromRoom(this.server, roomId, client);
       }
     }
   }
 
   @SubscribeMessage('join-room')
   handleJoinRoom(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: ExtendedSocket,
     @MessageBody() payload: UserInfoDto & RoomIdDto,
   ) {
     const { userId, nickname, roomId } = payload;
     const userInfo: UserInfo = { userId, nickname };
 
-    const existingRoomId = this.roomService.getUserRoomId(client.id);
+    const existingRoomId = this.roomService.getUserRoomId(client);
     if (existingRoomId && existingRoomId !== roomId) {
-      this.roomService.removeUserFromRoom(existingRoomId, client.id);
+      this.roomService.removeUserFromRoom(this.server, existingRoomId, client);
     }
 
-    this.roomService.addUserToRoom(roomId, client.id, userInfo);
-    client.join(roomId);
+    this.roomService.addUserToRoom(this.server, roomId, client, userInfo);
     client.to(roomId).emit('join-room', userInfo);
     console.log(`[invitation] User ${nickname} joined room ${roomId}`);
   }
@@ -83,14 +86,17 @@ export class InvitationGateway
   @SubscribeMessage('leave-room')
   @UseGuards(RoomAccessGuard)
   handleLeaveRoom(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: ExtendedSocket,
     @MessageBody() payload: UserInfoDto & RoomIdDto,
   ) {
     const { nickname, roomId } = payload;
 
-    const userInfo = this.roomService.removeUserFromRoom(roomId, client.id);
+    const userInfo = this.roomService.removeUserFromRoom(
+      this.server,
+      roomId,
+      client,
+    );
     if (userInfo) {
-      client.leave(roomId);
       client.to(roomId).emit('leave-room', userInfo);
       console.log(`[invitation] User ${nickname} left room ${roomId}`);
     }
@@ -100,12 +106,12 @@ export class InvitationGateway
   @UseGuards(RoomAccessGuard, UserOwnershipGuard)
   @UseInterceptors(DataOwnershipInterceptor)
   handleChatMessage(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: ExtendedSocket,
     @MessageBody() payload: ChatMessage,
   ) {
     const { nickname, message } = payload;
 
-    const roomId = this.roomService.getUserRoomId(client.id);
+    const roomId = this.roomService.getUserRoomId(client);
     if (!roomId) {
       return;
     }
@@ -118,12 +124,12 @@ export class InvitationGateway
   @SubscribeMessage('request-phase-change')
   @UseGuards(RoomAccessGuard, UserOwnershipGuard)
   handleRequestPhaseChange(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: ExtendedSocket,
     @MessageBody() payload: RequestPhaseChangePayload,
   ) {
     const { requester, targetPhase } = payload;
 
-    const roomId = this.roomService.getUserRoomId(client.id);
+    const roomId = this.roomService.getUserRoomId(client);
     if (!roomId) {
       return;
     }
@@ -149,12 +155,12 @@ export class InvitationGateway
   @UseGuards(RoomAccessGuard, UserOwnershipGuard)
   @UseInterceptors(DataOwnershipInterceptor)
   handleUpdatePhaseData(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: ExtendedSocket,
     @MessageBody() payload: PhaseDataDto,
   ) {
     const { phase, data } = payload;
 
-    const roomId = this.roomService.getUserRoomId(client.id);
+    const roomId = this.roomService.getUserRoomId(client);
     if (!roomId) {
       return;
     }
