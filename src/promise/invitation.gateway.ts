@@ -7,12 +7,9 @@ import {
   MessageBody,
   ConnectedSocket,
 } from '@nestjs/websockets';
+import { UseGuards, UseInterceptors, UsePipes } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import {
-  UserInfo,
-  PhaseChangeBroadcast,
-  PhaseDataBroadcastPayload,
-} from './types';
+import { UserInfo, PhaseDataBroadcastPayload } from './types';
 import type {
   ChatMessage,
   JoinRoomPayload,
@@ -23,6 +20,13 @@ import { RoomService } from './services/room.service';
 import { ChatService } from './services/chat.service';
 import { PhaseService } from './services/phase.service';
 import { GuardService } from './services/guard.service';
+import { RoomAccessGuard, UserOwnershipGuard } from './guards';
+import { LoggingInterceptor, DataOwnershipInterceptor } from './interceptors';
+import {
+  UserInfoValidationPipe,
+  RoomIdValidationPipe,
+  PhaseDataValidationPipe,
+} from './pipes';
 
 @WebSocketGateway({
   namespace: '/invitation',
@@ -31,6 +35,7 @@ import { GuardService } from './services/guard.service';
     methods: ['GET', 'POST'],
   },
 })
+@UseInterceptors(LoggingInterceptor)
 export class InvitationGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
@@ -45,6 +50,12 @@ export class InvitationGateway
   server: Server;
 
   handleConnection(client: Socket) {
+    const roomId = client.handshake.query.roomId as string;
+    if (!roomId) {
+      console.log(`[invitation] Client connected without roomId`);
+      return;
+    }
+    client.join(roomId);
     console.log(`[invitation] Client connected: ${client.id}`);
   }
 
@@ -60,25 +71,19 @@ export class InvitationGateway
   }
 
   @SubscribeMessage('join-room')
+  @UsePipes(UserInfoValidationPipe, RoomIdValidationPipe)
   handleJoinRoom(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: JoinRoomPayload,
   ) {
     const { userId, nickname, roomId } = payload;
     const userInfo: UserInfo = { userId, nickname };
-    const permissionCheck = this.guardService.canJoinRoom(
-      roomId,
-      userInfo,
-      this.roomService,
-    );
-    if (!permissionCheck.allowed) {
-      console.log(`[invitation] Join room denied: ${permissionCheck.reason}`);
-      return;
-    }
+
     const existingRoomId = this.roomService.getUserRoomId(client.id);
     if (existingRoomId && existingRoomId !== roomId) {
       this.roomService.removeUserFromRoom(existingRoomId, client.id);
     }
+
     this.roomService.addUserToRoom(roomId, client.id, userInfo);
     client.join(roomId);
     client.to(roomId).emit('join-room', userInfo);
@@ -86,20 +91,14 @@ export class InvitationGateway
   }
 
   @SubscribeMessage('leave-room')
+  @UseGuards(RoomAccessGuard)
+  @UsePipes(UserInfoValidationPipe, RoomIdValidationPipe)
   handleLeaveRoom(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: LeaveRoomPayload,
   ) {
-    const { userId, nickname, roomId } = payload;
-    const permissionCheck = this.guardService.canLeaveRoom(
-      roomId,
-      client.id,
-      this.roomService,
-    );
-    if (!permissionCheck.allowed) {
-      console.log(`[invitation] Leave room denied: ${permissionCheck.reason}`);
-      return;
-    }
+    const { nickname, roomId } = payload;
+
     const userInfo = this.roomService.removeUserFromRoom(roomId, client.id);
     if (userInfo) {
       client.leave(roomId);
@@ -109,103 +108,89 @@ export class InvitationGateway
   }
 
   @SubscribeMessage('chat-message')
+  @UseGuards(RoomAccessGuard, UserOwnershipGuard)
+  @UseInterceptors(DataOwnershipInterceptor)
   handleChatMessage(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: ChatMessage,
   ) {
+    const { nickname, message } = payload;
+
     const roomId = this.roomService.getUserRoomId(client.id);
-    if (!roomId) return;
-    const permissionCheck = this.guardService.canSendChatMessage(
-      client.id,
-      payload.senderId,
-      this.roomService,
-    );
-    if (!permissionCheck.allowed) {
-      console.log(
-        `[invitation] Chat message denied: ${permissionCheck.reason}`,
-      );
+    if (!roomId) {
       return;
     }
+
     this.chatService.addMessage(roomId, payload);
-    client.to(roomId).emit('chat', payload);
-    console.log(
-      `[invitation] Chat message from ${payload.nickname} in room ${roomId}: ${payload.message}`,
-    );
+    client.to(roomId).emit('chat-message', payload);
+    console.log(`[invitation] Chat message from ${nickname}: ${message}`);
   }
 
   @SubscribeMessage('request-phase-change')
+  @UseGuards(RoomAccessGuard, UserOwnershipGuard)
   handleRequestPhaseChange(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: RequestPhaseChangePayload,
   ) {
+    const { requester, targetPhase } = payload;
+
     const roomId = this.roomService.getUserRoomId(client.id);
-    if (!roomId) return;
-    const currentPhase = this.roomService.getRoomPhase(roomId);
-    const permissionCheck = this.guardService.canRequestPhaseChange(
-      client.id,
-      payload.requester.userId,
-      this.roomService,
-    );
-    if (!permissionCheck.allowed) {
-      console.log(
-        `[invitation] Phase change request denied: ${permissionCheck.reason}`,
-      );
+    if (!roomId) {
       return;
     }
+
+    const currentPhase = this.roomService.getRoomPhase(roomId);
     const result = this.phaseService.requestPhaseChange(
       roomId,
-      payload.requester,
-      payload.targetPhase,
+      requester,
+      targetPhase,
       currentPhase,
     );
+
     if (result.success) {
-      this.server.to(roomId).emit('phase-change', result.broadcast);
-      this.roomService.setRoomPhase(roomId, payload.targetPhase);
+      this.roomService.setRoomPhase(roomId, targetPhase);
+      client.to(roomId).emit('phase-change', result.broadcast);
       console.log(
-        `[invitation] Phase change approved: ${currentPhase} -> ${payload.targetPhase} by ${payload.requester.nickname} in room ${roomId}`,
+        `[invitation] Phase changed to ${targetPhase} in room ${roomId}`,
       );
-    } else {
-      console.log(`[invitation] Phase change denied: ${result.reason}`);
     }
   }
 
   @SubscribeMessage('update-phase-data')
+  @UseGuards(RoomAccessGuard, UserOwnershipGuard)
+  @UsePipes(PhaseDataValidationPipe)
+  @UseInterceptors(DataOwnershipInterceptor)
   handleUpdatePhaseData(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: Partial<PhaseDataBroadcastPayload>,
   ) {
+    const { phase, data } = payload;
+
     const roomId = this.roomService.getUserRoomId(client.id);
-    if (!roomId) return;
-    const room = this.roomService.createOrGetRoom(roomId);
-    const userInfo = room.users.get(client.id);
-    if (!userInfo) return;
-    const permissionCheck = this.guardService.canModifyPhaseData(
-      client.id,
-      userInfo.userId,
-      this.roomService,
-    );
-    if (!permissionCheck.allowed) {
+    if (!roomId) {
+      return;
+    }
+
+    const currentPhase = this.roomService.getRoomPhase(roomId);
+    if (phase !== currentPhase) {
       console.log(
-        `[invitation] Phase data update denied: ${permissionCheck.reason}`,
+        `[invitation] Phase mismatch: expected ${currentPhase}, got ${phase}`,
       );
       return;
     }
-    const sanitizedData = this.phaseService.sanitizePhaseData(
-      payload.data || {},
-    );
-    const currentPhaseData = this.roomService.getRoomPhaseData(roomId);
-    const mergedData = this.phaseService.mergePhaseData(
-      currentPhaseData,
-      sanitizedData,
-    );
-    this.roomService.updateRoomPhaseData(roomId, mergedData);
-    const broadcastPayload: PhaseDataBroadcastPayload = {
-      phase: this.roomService.getRoomPhase(roomId),
-      data: mergedData,
-    };
-    this.server.to(roomId).emit('phase-data', broadcastPayload);
-    console.log(
-      `[invitation] Phase data updated by ${userInfo.nickname} in room ${roomId}`,
-    );
+
+    if (data) {
+      this.roomService.updateRoomPhaseData(roomId, data);
+      client.to(roomId).emit('phase-data-update', payload);
+
+      this.guardService.logDataModification(
+        'unknown',
+        roomId,
+        'phase-data',
+        'updated',
+      );
+
+      console.log(`[invitation] Phase data updated in room ${roomId}`);
+    }
   }
 }

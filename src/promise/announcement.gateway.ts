@@ -7,12 +7,9 @@ import {
   MessageBody,
   ConnectedSocket,
 } from '@nestjs/websockets';
+import { UseGuards, UseInterceptors, UsePipes } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import {
-  UserInfo,
-  PhaseChangeBroadcast,
-  PhaseDataBroadcastPayload,
-} from './types';
+import { UserInfo, PhaseDataBroadcastPayload } from './types';
 import type {
   ChatMessage,
   JoinRoomPayload,
@@ -23,6 +20,13 @@ import { RoomService } from './services/room.service';
 import { ChatService } from './services/chat.service';
 import { PhaseService } from './services/phase.service';
 import { GuardService } from './services/guard.service';
+import { RoomAccessGuard, UserOwnershipGuard } from './guards';
+import { LoggingInterceptor, DataOwnershipInterceptor } from './interceptors';
+import {
+  UserInfoValidationPipe,
+  RoomIdValidationPipe,
+  PhaseDataValidationPipe,
+} from './pipes';
 
 @WebSocketGateway({
   namespace: '/announcement',
@@ -31,6 +35,7 @@ import { GuardService } from './services/guard.service';
     methods: ['GET', 'POST'],
   },
 })
+@UseInterceptors(LoggingInterceptor)
 export class AnnouncementGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
@@ -45,6 +50,12 @@ export class AnnouncementGateway
   server: Server;
 
   handleConnection(client: Socket) {
+    const roomId = client.handshake.query.roomId as string;
+    if (!roomId) {
+      console.log(`[announcement] Client connected without roomId`);
+      return;
+    }
+    client.join(roomId);
     console.log(`[announcement] Client connected: ${client.id}`);
   }
 
@@ -60,25 +71,19 @@ export class AnnouncementGateway
   }
 
   @SubscribeMessage('join-room')
+  @UsePipes(UserInfoValidationPipe, RoomIdValidationPipe)
   handleJoinRoom(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: JoinRoomPayload,
   ) {
     const { userId, nickname, roomId } = payload;
     const userInfo: UserInfo = { userId, nickname };
-    const permissionCheck = this.guardService.canJoinRoom(
-      roomId,
-      userInfo,
-      this.roomService,
-    );
-    if (!permissionCheck.allowed) {
-      console.log(`[announcement] Join room denied: ${permissionCheck.reason}`);
-      return;
-    }
+
     const existingRoomId = this.roomService.getUserRoomId(client.id);
     if (existingRoomId && existingRoomId !== roomId) {
       this.roomService.removeUserFromRoom(existingRoomId, client.id);
     }
+
     this.roomService.addUserToRoom(roomId, client.id, userInfo);
     client.join(roomId);
     client.to(roomId).emit('join-room', userInfo);
@@ -86,22 +91,14 @@ export class AnnouncementGateway
   }
 
   @SubscribeMessage('leave-room')
+  @UseGuards(RoomAccessGuard)
+  @UsePipes(UserInfoValidationPipe, RoomIdValidationPipe)
   handleLeaveRoom(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: LeaveRoomPayload,
   ) {
-    const { userId, nickname, roomId } = payload;
-    const permissionCheck = this.guardService.canLeaveRoom(
-      roomId,
-      client.id,
-      this.roomService,
-    );
-    if (!permissionCheck.allowed) {
-      console.log(
-        `[announcement] Leave room denied: ${permissionCheck.reason}`,
-      );
-      return;
-    }
+    const { nickname, roomId } = payload;
+
     const userInfo = this.roomService.removeUserFromRoom(roomId, client.id);
     if (userInfo) {
       client.leave(roomId);
@@ -111,111 +108,89 @@ export class AnnouncementGateway
   }
 
   @SubscribeMessage('chat-message')
+  @UseGuards(RoomAccessGuard, UserOwnershipGuard)
+  @UseInterceptors(DataOwnershipInterceptor)
   handleChatMessage(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: ChatMessage,
   ) {
+    const { nickname, message } = payload;
+
     const roomId = this.roomService.getUserRoomId(client.id);
-    if (!roomId) return;
-    const permissionCheck = this.guardService.canSendChatMessage(
-      client.id,
-      payload.senderId,
-      this.roomService,
-    );
-    if (!permissionCheck.allowed) {
-      console.log(
-        `[announcement] Chat message denied: ${permissionCheck.reason}`,
-      );
+    if (!roomId) {
       return;
     }
+
     this.chatService.addMessage(roomId, payload);
-    client.to(roomId).emit('chat', payload);
-    console.log(
-      `[announcement] Chat message from ${payload.nickname} in room ${roomId}: ${payload.message}`,
-    );
+    client.to(roomId).emit('chat-message', payload);
+    console.log(`[announcement] Chat message from ${nickname}: ${message}`);
   }
 
   @SubscribeMessage('request-phase-change')
+  @UseGuards(RoomAccessGuard, UserOwnershipGuard)
   handleRequestPhaseChange(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: RequestPhaseChangePayload,
   ) {
+    const { requester, targetPhase } = payload;
+
     const roomId = this.roomService.getUserRoomId(client.id);
-    if (!roomId) return;
-    // announcement 네임스페이스는 시간 정하기(1단계) 없이 시작 (2단계부터)
-    const currentPhase = Math.max(this.roomService.getRoomPhase(roomId), 2);
-    const permissionCheck = this.guardService.canRequestPhaseChange(
-      client.id,
-      payload.requester.userId,
-      this.roomService,
-    );
-    if (!permissionCheck.allowed) {
-      console.log(
-        `[announcement] Phase change request denied: ${permissionCheck.reason}`,
-      );
+    if (!roomId) {
       return;
     }
-    // 1단계로의 전환은 무시
-    if (payload.targetPhase === 1) {
-      console.log(
-        `[announcement] Phase 1 (시간 정하기) is not allowed in this namespace.`,
-      );
-      return;
-    }
+
+    const currentPhase = this.roomService.getRoomPhase(roomId);
     const result = this.phaseService.requestPhaseChange(
       roomId,
-      payload.requester,
-      payload.targetPhase,
+      requester,
+      targetPhase,
       currentPhase,
     );
+
     if (result.success) {
-      this.server.to(roomId).emit('phase-change', result.broadcast);
-      this.roomService.setRoomPhase(roomId, payload.targetPhase);
+      this.roomService.setRoomPhase(roomId, targetPhase);
+      client.to(roomId).emit('phase-change', result.broadcast);
       console.log(
-        `[announcement] Phase change approved: ${currentPhase} -> ${payload.targetPhase} by ${payload.requester.nickname} in room ${roomId}`,
+        `[announcement] Phase changed to ${targetPhase} in room ${roomId}`,
       );
-    } else {
-      console.log(`[announcement] Phase change denied: ${result.reason}`);
     }
   }
 
   @SubscribeMessage('update-phase-data')
+  @UseGuards(RoomAccessGuard, UserOwnershipGuard)
+  @UsePipes(PhaseDataValidationPipe)
+  @UseInterceptors(DataOwnershipInterceptor)
   handleUpdatePhaseData(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: Partial<PhaseDataBroadcastPayload>,
   ) {
+    const { phase, data } = payload;
+
     const roomId = this.roomService.getUserRoomId(client.id);
-    if (!roomId) return;
-    const room = this.roomService.createOrGetRoom(roomId);
-    const userInfo = room.users.get(client.id);
-    if (!userInfo) return;
-    const permissionCheck = this.guardService.canModifyPhaseData(
-      client.id,
-      userInfo.userId,
-      this.roomService,
-    );
-    if (!permissionCheck.allowed) {
+    if (!roomId) {
+      return;
+    }
+
+    const currentPhase = this.roomService.getRoomPhase(roomId);
+    if (phase !== currentPhase) {
       console.log(
-        `[announcement] Phase data update denied: ${permissionCheck.reason}`,
+        `[announcement] Phase mismatch: expected ${currentPhase}, got ${phase}`,
       );
       return;
     }
-    const sanitizedData = this.phaseService.sanitizePhaseData(
-      payload.data || {},
-    );
-    const currentPhaseData = this.roomService.getRoomPhaseData(roomId);
-    const mergedData = this.phaseService.mergePhaseData(
-      currentPhaseData,
-      sanitizedData,
-    );
-    this.roomService.updateRoomPhaseData(roomId, mergedData);
-    const broadcastPayload: PhaseDataBroadcastPayload = {
-      phase: Math.max(this.roomService.getRoomPhase(roomId), 2),
-      data: mergedData,
-    };
-    this.server.to(roomId).emit('phase-data', broadcastPayload);
-    console.log(
-      `[announcement] Phase data updated by ${userInfo.nickname} in room ${roomId}`,
-    );
+
+    if (data) {
+      this.roomService.updateRoomPhaseData(roomId, data);
+      client.to(roomId).emit('phase-data-update', payload);
+
+      this.guardService.logDataModification(
+        'unknown',
+        roomId,
+        'phase-data',
+        'updated',
+      );
+
+      console.log(`[announcement] Phase data updated in room ${roomId}`);
+    }
   }
 }
