@@ -7,26 +7,17 @@ import {
   MessageBody,
   ConnectedSocket,
 } from '@nestjs/websockets';
-import { UseGuards, UseInterceptors, UsePipes } from '@nestjs/common';
+import { UseGuards, UseInterceptors } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { UserInfo, PhaseDataBroadcastPayload } from './types';
-import type {
-  ChatMessage,
-  JoinRoomPayload,
-  LeaveRoomPayload,
-  RequestPhaseChangePayload,
-} from './types';
+import { UserInfo } from './types';
+import type { ChatMessage, RequestPhaseChangePayload } from './types';
 import { RoomService } from './services/room.service';
 import { ChatService } from './services/chat.service';
 import { PhaseService } from './services/phase.service';
 import { GuardService } from './services/guard.service';
 import { RoomAccessGuard, UserOwnershipGuard } from './guards';
 import { LoggingInterceptor, DataOwnershipInterceptor } from './interceptors';
-import {
-  UserInfoValidationPipe,
-  RoomIdValidationPipe,
-  PhaseDataValidationPipe,
-} from './pipes';
+import { UserInfoDto, RoomIdDto, PhaseDataDto } from './dto';
 
 @WebSocketGateway({
   namespace: '/announcement',
@@ -52,15 +43,26 @@ export class AnnouncementGateway
   handleConnection(client: Socket) {
     const roomId = client.handshake.query.roomId as string;
     if (!roomId) {
-      console.log(`[announcement] Client connected without roomId`);
+      // console.log(`[announcement] Client connected without roomId`);
+      client.disconnect();
       return;
     }
     client.join(roomId);
-    console.log(`[announcement] Client connected: ${client.id}`);
+    client.to(roomId).emit('join-room', {
+      userId: client.id,
+      nickname: 'Unknown',
+      roomId: roomId,
+    });
+    // console.log(`[announcement] Client connected: ${client.id}`);
   }
 
   handleDisconnect(client: Socket) {
-    console.log(`[announcement] Client disconnected: ${client.id}`);
+    // console.log(`[announcement] Client disconnected: ${client.id}`);
+    client.to(roomId).emit('leave-room', {
+      userId: client.id,
+      nickname: 'Unknown',
+      roomId: roomId,
+    });
     const userInfo = this.roomService.removeUserFromAnyRoom(client.id);
     if (userInfo) {
       const roomId = this.roomService.getUserRoomId(client.id);
@@ -71,10 +73,9 @@ export class AnnouncementGateway
   }
 
   @SubscribeMessage('join-room')
-  @UsePipes(UserInfoValidationPipe, RoomIdValidationPipe)
   handleJoinRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: JoinRoomPayload,
+    @MessageBody() payload: UserInfoDto & RoomIdDto,
   ) {
     const { userId, nickname, roomId } = payload;
     const userInfo: UserInfo = { userId, nickname };
@@ -92,10 +93,9 @@ export class AnnouncementGateway
 
   @SubscribeMessage('leave-room')
   @UseGuards(RoomAccessGuard)
-  @UsePipes(UserInfoValidationPipe, RoomIdValidationPipe)
   handleLeaveRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: LeaveRoomPayload,
+    @MessageBody() payload: UserInfoDto & RoomIdDto,
   ) {
     const { nickname, roomId } = payload;
 
@@ -158,11 +158,10 @@ export class AnnouncementGateway
 
   @SubscribeMessage('update-phase-data')
   @UseGuards(RoomAccessGuard, UserOwnershipGuard)
-  @UsePipes(PhaseDataValidationPipe)
   @UseInterceptors(DataOwnershipInterceptor)
   handleUpdatePhaseData(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: Partial<PhaseDataBroadcastPayload>,
+    @MessageBody() payload: PhaseDataDto,
   ) {
     const { phase, data } = payload;
 

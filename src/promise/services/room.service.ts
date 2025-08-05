@@ -193,9 +193,7 @@ export class RoomService {
   /**
    * 방 통계 정보 반환
    */
-  getRoomStats(
-    roomId: string,
-  ): {
+  getRoomStats(roomId: string): {
     userCount: number;
     phase: number;
     createdAt: Date;

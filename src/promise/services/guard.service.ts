@@ -19,71 +19,71 @@ export class GuardService {
   /**
    * 데이터 소유권 확인 (유틸리티 함수)
    */
-  checkDataOwnership(data: any, userId: string): DataOwnershipCheck {
-    if (!data || typeof data !== 'object') {
-      return {
-        isOwner: false,
-        reason: 'Invalid data format',
-      };
-    }
+  // checkDataOwnership(data: any, userId: string): DataOwnershipCheck {
+  //   if (!data || typeof data !== 'object') {
+  //     return {
+  //       isOwner: false,
+  //       reason: 'Invalid data format',
+  //     };
+  //   }
 
-    // 데이터에 userId 필드가 있는지 확인
-    if (
-      data.userId &&
-      typeof data.userId === 'string' &&
-      data.userId !== userId
-    ) {
-      return {
-        isOwner: false,
-        ownerId: data.userId,
-        reason: 'Data belongs to another user',
-      };
-    }
+  //   // 데이터에 userId 필드가 있는지 확인
+  //   if (
+  //     data.userId &&
+  //     typeof data.userId === 'string' &&
+  //     data.userId !== userId
+  //   ) {
+  //     return {
+  //       isOwner: false,
+  //       ownerId: data.userId,
+  //       reason: 'Data belongs to another user',
+  //     };
+  //   }
 
-    return {
-      isOwner: true,
-    };
-  }
+  //   return {
+  //     isOwner: true,
+  //   };
+  // }
 
   /**
    * 단계별 데이터 소유권 확인 (유틸리티 함수)
    */
-  checkPhaseDataOwnership(
-    phaseData: Partial<PhaseDataBroadcastPayload['data']>,
-    userId: string,
-  ): DataOwnershipCheck[] {
-    const checks: DataOwnershipCheck[] = [];
+  // checkPhaseDataOwnership(
+  //   phaseData: Partial<PhaseDataBroadcastPayload['data']>,
+  //   userId: string,
+  // ): DataOwnershipCheck[] {
+  //   const checks: DataOwnershipCheck[] = [];
 
-    // locationSelection 확인
-    if (phaseData.locationSelection) {
-      for (const item of phaseData.locationSelection) {
-        checks.push(this.checkDataOwnership(item, userId));
-      }
-    }
+  //   // locationSelection 확인
+  //   if (phaseData.locationSelection) {
+  //     for (const item of phaseData.locationSelection) {
+  //       checks.push(this.checkDataOwnership(item, userId));
+  //     }
+  //   }
 
-    // recentMenus 확인
-    if (phaseData.recentMenus) {
-      for (const item of phaseData.recentMenus) {
-        checks.push(this.checkDataOwnership(item, userId));
-      }
-    }
+  //   // recentMenus 확인
+  //   if (phaseData.recentMenus) {
+  //     for (const item of phaseData.recentMenus) {
+  //       checks.push(this.checkDataOwnership(item, userId));
+  //     }
+  //   }
 
-    // wantedMenus 확인
-    if (phaseData.wantedMenus) {
-      for (const item of phaseData.wantedMenus) {
-        checks.push(this.checkDataOwnership(item, userId));
-      }
-    }
+  //   // wantedMenus 확인
+  //   if (phaseData.wantedMenus) {
+  //     for (const item of phaseData.wantedMenus) {
+  //       checks.push(this.checkDataOwnership(item, userId));
+  //     }
+  //   }
 
-    // finalPlace 확인
-    if (phaseData.finalPlace) {
-      for (const item of phaseData.finalPlace) {
-        checks.push(this.checkDataOwnership(item, userId));
-      }
-    }
+  //   // finalPlace 확인
+  //   if (phaseData.finalPlace) {
+  //     for (const item of phaseData.finalPlace) {
+  //       checks.push(this.checkDataOwnership(item, userId));
+  //     }
+  //   }
 
-    return checks;
-  }
+  //   return checks;
+  // }
 
   /**
    * 관리자 권한 확인 (향후 확장용)

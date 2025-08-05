@@ -7,26 +7,17 @@ import {
   MessageBody,
   ConnectedSocket,
 } from '@nestjs/websockets';
-import { UseGuards, UseInterceptors, UsePipes } from '@nestjs/common';
+import { UseGuards, UseInterceptors } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { UserInfo, PhaseDataBroadcastPayload } from './types';
-import type {
-  ChatMessage,
-  JoinRoomPayload,
-  LeaveRoomPayload,
-  RequestPhaseChangePayload,
-} from './types';
+import { UserInfo } from './types';
+import type { ChatMessage, RequestPhaseChangePayload } from './types';
 import { RoomService } from './services/room.service';
 import { ChatService } from './services/chat.service';
 import { PhaseService } from './services/phase.service';
 import { GuardService } from './services/guard.service';
 import { RoomAccessGuard, UserOwnershipGuard } from './guards';
 import { LoggingInterceptor, DataOwnershipInterceptor } from './interceptors';
-import {
-  UserInfoValidationPipe,
-  RoomIdValidationPipe,
-  PhaseDataValidationPipe,
-} from './pipes';
+import { UserInfoDto, RoomIdDto, PhaseDataDto } from './dto';
 
 @WebSocketGateway({
   namespace: '/invitation',
@@ -71,10 +62,9 @@ export class InvitationGateway
   }
 
   @SubscribeMessage('join-room')
-  @UsePipes(UserInfoValidationPipe, RoomIdValidationPipe)
   handleJoinRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: JoinRoomPayload,
+    @MessageBody() payload: UserInfoDto & RoomIdDto,
   ) {
     const { userId, nickname, roomId } = payload;
     const userInfo: UserInfo = { userId, nickname };
@@ -92,10 +82,9 @@ export class InvitationGateway
 
   @SubscribeMessage('leave-room')
   @UseGuards(RoomAccessGuard)
-  @UsePipes(UserInfoValidationPipe, RoomIdValidationPipe)
   handleLeaveRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: LeaveRoomPayload,
+    @MessageBody() payload: UserInfoDto & RoomIdDto,
   ) {
     const { nickname, roomId } = payload;
 
@@ -158,11 +147,10 @@ export class InvitationGateway
 
   @SubscribeMessage('update-phase-data')
   @UseGuards(RoomAccessGuard, UserOwnershipGuard)
-  @UsePipes(PhaseDataValidationPipe)
   @UseInterceptors(DataOwnershipInterceptor)
   handleUpdatePhaseData(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: Partial<PhaseDataBroadcastPayload>,
+    @MessageBody() payload: PhaseDataDto,
   ) {
     const { phase, data } = payload;
 

@@ -16,12 +16,7 @@ import {
 // Interceptors
 import { LoggingInterceptor, DataOwnershipInterceptor } from './interceptors';
 
-// Pipes
-import {
-  UserInfoValidationPipe,
-  RoomIdValidationPipe,
-  PhaseDataValidationPipe,
-} from './pipes';
+// DTOs are now handled by global ValidationPipe
 
 @Module({
   providers: [
@@ -42,10 +37,7 @@ import {
     LoggingInterceptor,
     DataOwnershipInterceptor,
 
-    // Pipes
-    UserInfoValidationPipe,
-    RoomIdValidationPipe,
-    PhaseDataValidationPipe,
+    // DTOs are now handled by global ValidationPipe
   ],
   exports: [
     // PromiseGateway,
@@ -65,10 +57,7 @@ import {
     LoggingInterceptor,
     DataOwnershipInterceptor,
 
-    // Pipes
-    UserInfoValidationPipe,
-    RoomIdValidationPipe,
-    PhaseDataValidationPipe,
+    // DTOs are now handled by global ValidationPipe
   ],
 })
 export class PromiseModule {}
