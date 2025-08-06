@@ -1,8 +1,17 @@
 export interface UserInfo {
   userId: string;
   nickname: string;
+  email: string;
+  role: string;
 }
-
+export interface JwtPayload {
+  sub: string;
+  iat: number;
+  exp: number;
+  username: string;
+  email: string;
+  role: string;
+}
 export interface ChatMessage {
   senderId: string;
   nickname: string;

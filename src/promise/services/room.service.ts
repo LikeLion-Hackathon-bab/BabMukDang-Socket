@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Server } from 'socket.io';
-import { UserInfo, PhaseDataBroadcastPayload } from '../types';
+import type { UserInfo, PhaseDataBroadcastPayload } from '../types';
 import { ExtendedSocket } from '../types/socket.types';
+import { User } from '../decorators/user.decorator';
 
 export interface RoomState {
   phase: number;
@@ -41,7 +42,7 @@ export class RoomService {
     server: Server,
     roomId: string,
     socket: ExtendedSocket,
-    userInfo: UserInfo,
+    @User() userInfo: UserInfo,
   ): boolean {
     // Socket.IO room에 참가
     socket.join(roomId);
