@@ -33,13 +33,13 @@ export interface MessageData {
  */
 export interface JoinRoomPayload {
   userId: string;
-  nickname: string;
+  username: string;
   roomId: string;
 }
 
 export interface LeaveRoomPayload {
   userId: string;
-  nickname: string;
+  username: string;
   roomId: string;
 }
 
@@ -48,7 +48,7 @@ export interface LeaveRoomPayload {
  */
 export interface ChatMessage {
   senderId: string;
-  nickname: string;
+  username: string;
   message: string;
   timestamp: number;
   phase: number;

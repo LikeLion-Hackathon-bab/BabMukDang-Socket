@@ -7,8 +7,7 @@
  */
 export interface UserInfo {
   userId: string;
-  nickname: string;
-  email: string;
+  username: string;
   role: string;
 }
 
@@ -25,19 +24,11 @@ export interface JwtPayload {
 }
 
 /**
- * User credentials for authentication
- */
-export interface UserCredentials {
-  email: string;
-  password: string;
-}
-
-/**
  * User profile information
  */
 export interface UserProfile {
   userId: string;
-  nickname: string;
+  username: string;
   email: string;
   role: string;
   createdAt: Date;

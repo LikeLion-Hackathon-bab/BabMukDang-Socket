@@ -98,7 +98,7 @@ export class PhaseService {
     };
 
     this.logger.log(
-      `Phase change approved: ${currentPhase} -> ${targetPhase} by ${requester.nickname} in room ${roomId}`,
+      `Phase change approved: ${currentPhase} -> ${targetPhase} by ${requester.username} in room ${roomId}`,
     );
 
     return {

@@ -1,2 +1,2 @@
 export { UserOwnershipGuard } from './user-ownership.guard';
-export { JwtGuard } from './auth.guard';
+export { WsGuard } from './auth.guard';

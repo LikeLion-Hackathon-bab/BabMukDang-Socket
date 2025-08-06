@@ -8,5 +8,5 @@ export class UserInfoDto {
   @IsString()
   @IsNotEmpty()
   @Length(1, 20)
-  nickname: string;
+  username: string;
 }

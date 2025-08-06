@@ -57,7 +57,7 @@ export class ChatService {
       );
     }
 
-    this.logger.log(`Message added to room ${roomId} from ${message.nickname}`);
+    this.logger.log(`Message added to room ${roomId} from ${message.username}`);
     return true;
   }
 
@@ -117,7 +117,7 @@ export class ChatService {
     return messages.filter(
       (message) =>
         message.message.toLowerCase().includes(lowerKeyword) ||
-        message.nickname.toLowerCase().includes(lowerKeyword),
+        message.username.toLowerCase().includes(lowerKeyword),
     );
   }
 

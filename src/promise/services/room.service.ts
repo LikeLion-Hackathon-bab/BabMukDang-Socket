@@ -57,7 +57,7 @@ export class RoomService {
     room.lastActivity = new Date();
 
     this.logger.log(
-      `User ${userInfo.nickname} (${userInfo.userId}) added to room ${roomId}`,
+      `User ${userInfo.username} (${userInfo.userId}) added to room ${roomId}`,
     );
     return true;
   }
@@ -89,14 +89,14 @@ export class RoomService {
     }
 
     this.logger.log(
-      `User ${userInfo.nickname} (${userInfo.userId}) removed from room ${roomId}`,
+      `User ${userInfo.username} (${userInfo.userId}) removed from room ${roomId}`,
     );
 
     // 방이 비어있으면 방 삭제
-    if (this.getRoomUserCount(server, roomId) === 0) {
-      this.rooms.delete(roomId);
-      this.logger.log(`Room ${roomId} deleted (no users remaining)`);
-    }
+    // if (this.getRoomUserCount(server, roomId) === 0) {
+    //   this.rooms.delete(roomId);
+    //   this.logger.log(`Room ${roomId} deleted (no users remaining)`);
+    // }
 
     return userInfo;
   }
@@ -137,11 +137,11 @@ export class RoomService {
   }
 
   /**
-   * 방의 사용자 수 반환 (Socket.IO adapter 활용)
+   * 방의 사용자 수 반환 (Socket.IO)
    */
-  getRoomUserCount(server: Server, roomId: string): number {
-    const room = server.sockets.adapter.rooms.get(roomId);
-    return room?.size || 0;
+  async getRoomUserCount(server: Server, roomId: string): Promise<number> {
+    const room = await server.in(roomId).fetchSockets();
+    return room.length || 0;
   }
 
   /**
@@ -230,39 +230,13 @@ export class RoomService {
   getAllRooms(): Map<string, RoomState> {
     return this.rooms;
   }
-
-  /**
-   * 방 통계 정보 반환
-   */
-  getRoomStats(
-    server: Server,
-    roomId: string,
-  ): {
-    userCount: number;
-    phase: number;
-    createdAt: Date;
-    lastActivity: Date;
-  } | null {
-    const room = this.rooms.get(roomId);
-    if (!room) {
-      return null;
-    }
-
-    return {
-      userCount: this.getRoomUserCount(server, roomId),
-      phase: room.phase,
-      createdAt: room.createdAt,
-      lastActivity: room.lastActivity,
-    };
-  }
-
   /**
    * 비활성 방 정리 (메모리 관리용)
    */
-  cleanupInactiveRooms(
+  async cleanupInactiveRooms(
     server: Server,
     maxInactiveMinutes: number = 60,
-  ): number {
+  ): Promise<number> {
     const now = new Date();
     const cutoffTime = new Date(now.getTime() - maxInactiveMinutes * 60 * 1000);
     let cleanedCount = 0;
@@ -270,7 +244,7 @@ export class RoomService {
     for (const [roomId, room] of this.rooms.entries()) {
       if (
         room.lastActivity < cutoffTime &&
-        this.getRoomUserCount(server, roomId) === 0
+        (await this.getRoomUserCount(server, roomId)) === 0
       ) {
         this.rooms.delete(roomId);
         cleanedCount++;
