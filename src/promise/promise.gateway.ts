@@ -9,50 +9,81 @@ import {
 } from '@nestjs/websockets';
 import { UseGuards, UseInterceptors } from '@nestjs/common';
 import { Server } from 'socket.io';
-import { UserInfo } from './types';
-import type { ChatMessage, RequestPhaseChangePayload } from './types';
-import { RoomService } from './services/room.service';
-import { ChatService } from './services/chat.service';
-import { PhaseService } from './services/phase.service';
-import { GuardService } from './services/guard.service';
+import { UserInfo, ExtendedSocket } from '../types';
+import { RoomService, ChatService, PhaseService } from './services';
 import { RoomAccessGuard, UserOwnershipGuard } from './guards';
-import { LoggingInterceptor, DataOwnershipInterceptor } from './interceptors';
+import {
+  LoggingInterceptor,
+  DataOwnershipInterceptor,
+  ErrorHandlingInterceptor,
+} from './interceptors';
 import { UserInfoDto, RoomIdDto, PhaseDataDto } from './dto';
-import type { ExtendedSocket } from './types/socket.types';
+
+// 임시로 타입 정의
+export interface ChatMessage {
+  senderId: string;
+  nickname: string;
+  message: string;
+  timestamp: number;
+  phase: number;
+}
+
+export interface RequestPhaseChangePayload {
+  requester: UserInfo;
+  targetPhase: number;
+}
 
 @WebSocketGateway({
-  namespace: '/invitation',
+  namespace: '/promise',
   cors: {
     origin: '*',
     methods: ['GET', 'POST'],
   },
 })
-@UseInterceptors(LoggingInterceptor)
-export class InvitationGateway
+@UseInterceptors(LoggingInterceptor, ErrorHandlingInterceptor)
+export class PromiseGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
   constructor(
     private readonly roomService: RoomService,
     private readonly chatService: ChatService,
     private readonly phaseService: PhaseService,
-    private readonly guardService: GuardService,
   ) {}
 
   @WebSocketServer()
   server: Server;
 
+  /**
+   * 네임스페이스별 로그 prefix를 반환
+   */
+  private getLogPrefix(client: ExtendedSocket): string {
+    const namespace = client.nsp.name;
+    return `[${namespace.replace('/', '')}]`;
+  }
+
   handleConnection(client: ExtendedSocket) {
     const roomId = client.handshake.query.roomId as string;
+    const logPrefix = this.getLogPrefix(client);
+
     if (!roomId) {
-      console.log(`[invitation] Client connected without roomId`);
+      console.log(`${logPrefix} Client connected without roomId`);
+      client.disconnect();
       return;
     }
+
     client.join(roomId);
-    console.log(`[invitation] Client connected: ${client.id}`);
+    client.to(roomId).emit('join-room', {
+      userId: client.id,
+      nickname: 'Unknown',
+      roomId: roomId,
+    });
+    console.log(`${logPrefix} Client connected: ${client.id}`);
   }
 
   handleDisconnect(client: ExtendedSocket) {
-    console.log(`[invitation] Client disconnected: ${client.id}`);
+    const logPrefix = this.getLogPrefix(client);
+    console.log(`${logPrefix} Client disconnected: ${client.id}`);
+
     const userInfo = this.roomService.removeUserFromAnyRoom(
       this.server,
       client,
@@ -71,7 +102,13 @@ export class InvitationGateway
     @MessageBody() payload: UserInfoDto & RoomIdDto,
   ) {
     const { userId, nickname, roomId } = payload;
-    const userInfo: UserInfo = { userId, nickname };
+    const userInfo: UserInfo = {
+      userId,
+      nickname,
+      email: '', // TODO: 실제 이메일 정보 추가 필요
+      role: 'user', // TODO: 실제 역할 정보 추가 필요
+    };
+    const logPrefix = this.getLogPrefix(client);
 
     const existingRoomId = this.roomService.getUserRoomId(client);
     if (existingRoomId && existingRoomId !== roomId) {
@@ -80,7 +117,7 @@ export class InvitationGateway
 
     this.roomService.addUserToRoom(this.server, roomId, client, userInfo);
     client.to(roomId).emit('join-room', userInfo);
-    console.log(`[invitation] User ${nickname} joined room ${roomId}`);
+    console.log(`${logPrefix} User ${nickname} joined room ${roomId}`);
   }
 
   @SubscribeMessage('leave-room')
@@ -90,6 +127,7 @@ export class InvitationGateway
     @MessageBody() payload: UserInfoDto & RoomIdDto,
   ) {
     const { nickname, roomId } = payload;
+    const logPrefix = this.getLogPrefix(client);
 
     const userInfo = this.roomService.removeUserFromRoom(
       this.server,
@@ -98,7 +136,7 @@ export class InvitationGateway
     );
     if (userInfo) {
       client.to(roomId).emit('leave-room', userInfo);
-      console.log(`[invitation] User ${nickname} left room ${roomId}`);
+      console.log(`${logPrefix} User ${nickname} left room ${roomId}`);
     }
   }
 
@@ -110,6 +148,7 @@ export class InvitationGateway
     @MessageBody() payload: ChatMessage,
   ) {
     const { nickname, message } = payload;
+    const logPrefix = this.getLogPrefix(client);
 
     const roomId = this.roomService.getUserRoomId(client);
     if (!roomId) {
@@ -118,7 +157,7 @@ export class InvitationGateway
 
     this.chatService.addMessage(roomId, payload);
     client.to(roomId).emit('chat-message', payload);
-    console.log(`[invitation] Chat message from ${nickname}: ${message}`);
+    console.log(`${logPrefix} Chat message from ${nickname}: ${message}`);
   }
 
   @SubscribeMessage('request-phase-change')
@@ -128,6 +167,7 @@ export class InvitationGateway
     @MessageBody() payload: RequestPhaseChangePayload,
   ) {
     const { requester, targetPhase } = payload;
+    const logPrefix = this.getLogPrefix(client);
 
     const roomId = this.roomService.getUserRoomId(client);
     if (!roomId) {
@@ -146,7 +186,7 @@ export class InvitationGateway
       this.roomService.setRoomPhase(roomId, targetPhase);
       client.to(roomId).emit('phase-change', result.broadcast);
       console.log(
-        `[invitation] Phase changed to ${targetPhase} in room ${roomId}`,
+        `${logPrefix} Phase changed to ${targetPhase} in room ${roomId}`,
       );
     }
   }
@@ -159,6 +199,7 @@ export class InvitationGateway
     @MessageBody() payload: PhaseDataDto,
   ) {
     const { phase, data } = payload;
+    const logPrefix = this.getLogPrefix(client);
 
     const roomId = this.roomService.getUserRoomId(client);
     if (!roomId) {
@@ -168,7 +209,7 @@ export class InvitationGateway
     const currentPhase = this.roomService.getRoomPhase(roomId);
     if (phase !== currentPhase) {
       console.log(
-        `[invitation] Phase mismatch: expected ${currentPhase}, got ${phase}`,
+        `${logPrefix} Phase mismatch: expected ${currentPhase}, got ${phase}`,
       );
       return;
     }
@@ -184,7 +225,7 @@ export class InvitationGateway
         'updated',
       );
 
-      console.log(`[invitation] Phase data updated in room ${roomId}`);
+      console.log(`${logPrefix} Phase data updated in room ${roomId}`);
     }
   }
 }

@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AnnouncementGateway } from './announcement.gateway';
-import { InvitationGateway } from './invitation.gateway';
+import { PromiseGateway } from './promise.gateway';
 import { RoomService } from './services/room.service';
 import { ChatService } from './services/chat.service';
 import { PhaseService } from './services/phase.service';
@@ -14,15 +13,17 @@ import {
 } from './guards';
 
 // Interceptors
-import { LoggingInterceptor, DataOwnershipInterceptor } from './interceptors';
+import {
+  LoggingInterceptor,
+  DataOwnershipInterceptor,
+  ErrorHandlingInterceptor,
+} from './interceptors';
 
 // DTOs are now handled by global ValidationPipe
 
 @Module({
   providers: [
-    // PromiseGateway,
-    AnnouncementGateway,
-    InvitationGateway,
+    PromiseGateway,
     RoomService,
     ChatService,
     PhaseService,
@@ -36,13 +37,12 @@ import { LoggingInterceptor, DataOwnershipInterceptor } from './interceptors';
     // Interceptors
     LoggingInterceptor,
     DataOwnershipInterceptor,
+    ErrorHandlingInterceptor,
 
     // DTOs are now handled by global ValidationPipe
   ],
   exports: [
-    // PromiseGateway,
-    AnnouncementGateway,
-    InvitationGateway,
+    PromiseGateway,
     RoomService,
     ChatService,
     PhaseService,
@@ -56,6 +56,7 @@ import { LoggingInterceptor, DataOwnershipInterceptor } from './interceptors';
     // Interceptors
     LoggingInterceptor,
     DataOwnershipInterceptor,
+    ErrorHandlingInterceptor,
 
     // DTOs are now handled by global ValidationPipe
   ],
