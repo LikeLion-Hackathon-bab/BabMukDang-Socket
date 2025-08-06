@@ -6,7 +6,7 @@ import { PhaseService } from './services/phase.service';
 
 // Guards
 import { UserOwnershipGuard } from './guards';
-import { JwtStrategy } from './guards/jwt.strategy';
+import { WsGuard } from './guards/auth.guard';
 
 // Interceptors
 import {
@@ -26,14 +26,13 @@ import {
 
     // Guards
     UserOwnershipGuard,
-    JwtStrategy,
 
     // Interceptors
     LoggingInterceptor,
     DataOwnershipInterceptor,
     ErrorHandlingInterceptor,
 
-    // DTOs are now handled by global ValidationPipe
+    WsGuard,
   ],
   exports: [
     PromiseGateway,

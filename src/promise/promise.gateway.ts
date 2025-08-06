@@ -7,29 +7,34 @@ import {
   MessageBody,
   ConnectedSocket,
 } from '@nestjs/websockets';
-import { UseGuards, UseInterceptors } from '@nestjs/common';
+import {
+  UnauthorizedException,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import { Server } from 'socket.io';
 import type { UserInfo } from '../types/user.types';
 import type { ExtendedSocket, ChatMessage } from '../types/socket.types';
 import type { RequestPhaseChangePayload } from '../types/phase.types';
 import { RoomService, ChatService, PhaseService } from './services';
-import { UserOwnershipGuard, JwtGuard } from './guards';
+import { UserOwnershipGuard, WsGuard } from './guards';
 import {
   LoggingInterceptor,
   DataOwnershipInterceptor,
   ErrorHandlingInterceptor,
 } from './interceptors';
 import { UserInfoDto, RoomIdDto, PhaseDataDto } from './dto';
+import { JwtService } from '@nestjs/jwt';
 
-@UseGuards(JwtGuard)
 @WebSocketGateway({
-  namespace: '/promise',
+  namespace: '/announcement',
   cors: {
     origin: '*',
     methods: ['GET', 'POST'],
   },
 })
 @UseInterceptors(LoggingInterceptor, ErrorHandlingInterceptor)
+@UseGuards(WsGuard)
 export class PromiseGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
@@ -37,6 +42,7 @@ export class PromiseGateway
     private readonly roomService: RoomService,
     private readonly chatService: ChatService,
     private readonly phaseService: PhaseService,
+    private readonly jwtService: JwtService,
   ) {}
 
   @WebSocketServer()
@@ -49,9 +55,30 @@ export class PromiseGateway
     const namespace = client.nsp.name;
     return `[${namespace.replace('/', '')}]`;
   }
+  /**
+   * 토큰 검증
+   */
+  private verifyToken(token: string): UserInfo {
+    const verify = this.jwtService.verify(token, {
+      secret: process.env.JWT_SECRET,
+    });
+    if (!verify) {
+      throw new UnauthorizedException('인증이 유효하지 않습니다. ');
+    } else {
+      return verify;
+    }
+  }
 
   handleConnection(client: ExtendedSocket) {
     const roomId = client.handshake.query.roomId as string;
+    const token = client.handshake.auth.token;
+    let userInfo: UserInfo | undefined;
+    if (!token) {
+      client.disconnect();
+      return;
+    } else {
+      userInfo = this.verifyToken(token);
+    }
     const logPrefix = this.getLogPrefix(client);
 
     if (!roomId) {
@@ -59,14 +86,18 @@ export class PromiseGateway
       client.disconnect();
       return;
     }
-
-    client.join(roomId);
-    client.to(roomId).emit('join-room', {
-      userId: client.id,
-      nickname: 'Unknown',
-      roomId: roomId,
-    });
-    console.log(`${logPrefix} Client connected: ${client.id}`);
+    const existingRoomId = this.roomService.getUserRoomId(client);
+    if (existingRoomId && existingRoomId !== roomId) {
+      this.roomService.removeUserFromRoom(this.server, existingRoomId, client);
+    }
+    if (userInfo) {
+      client.join(roomId);
+      this.roomService.addUserToRoom(this.server, roomId, client, userInfo);
+      client.to(roomId).emit('join-room', userInfo);
+      console.log(
+        `${logPrefix} User ${userInfo.username} joined room ${roomId}`,
+      );
+    }
   }
 
   handleDisconnect(client: ExtendedSocket) {
@@ -85,36 +116,12 @@ export class PromiseGateway
     }
   }
 
-  @SubscribeMessage('join-room')
-  handleJoinRoom(
-    @ConnectedSocket() client: ExtendedSocket,
-    @MessageBody() payload: UserInfoDto & RoomIdDto,
-  ) {
-    const { userId, nickname, roomId } = payload;
-    const userInfo: UserInfo = {
-      userId,
-      nickname,
-      email: '', // TODO: 실제 이메일 정보 추가 필요
-      role: 'user', // TODO: 실제 역할 정보 추가 필요
-    };
-    const logPrefix = this.getLogPrefix(client);
-
-    const existingRoomId = this.roomService.getUserRoomId(client);
-    if (existingRoomId && existingRoomId !== roomId) {
-      this.roomService.removeUserFromRoom(this.server, existingRoomId, client);
-    }
-
-    this.roomService.addUserToRoom(this.server, roomId, client, userInfo);
-    client.to(roomId).emit('join-room', userInfo);
-    console.log(`${logPrefix} User ${nickname} joined room ${roomId}`);
-  }
-
   @SubscribeMessage('leave-room')
   handleLeaveRoom(
     @ConnectedSocket() client: ExtendedSocket,
     @MessageBody() payload: UserInfoDto & RoomIdDto,
   ) {
-    const { nickname, roomId } = payload;
+    const { username, roomId } = payload;
     const logPrefix = this.getLogPrefix(client);
 
     const userInfo = this.roomService.removeUserFromRoom(
@@ -124,7 +131,7 @@ export class PromiseGateway
     );
     if (userInfo) {
       client.to(roomId).emit('leave-room', userInfo);
-      console.log(`${logPrefix} User ${nickname} left room ${roomId}`);
+      console.log(`${logPrefix} User ${username} left room ${roomId}`);
     }
   }
 
@@ -135,7 +142,7 @@ export class PromiseGateway
     @ConnectedSocket() client: ExtendedSocket,
     @MessageBody() payload: ChatMessage,
   ) {
-    const { nickname, message } = payload;
+    const { username, message } = payload;
     const logPrefix = this.getLogPrefix(client);
 
     const roomId = this.roomService.getUserRoomId(client);
@@ -145,7 +152,7 @@ export class PromiseGateway
 
     this.chatService.addMessage(roomId, payload);
     client.to(roomId).emit('chat-message', payload);
-    console.log(`${logPrefix} Chat message from ${nickname}: ${message}`);
+    console.log(`${logPrefix} Chat message from ${username}: ${message}`);
   }
 
   @SubscribeMessage('request-phase-change')
