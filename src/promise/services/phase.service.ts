@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  UserInfo,
-  PhaseChangeBroadcast,
+import type { UserInfo } from '../../types/user.types';
+import type {
   PhaseDataBroadcastPayload,
-} from '../types';
+  PhaseChangeBroadcast,
+} from '../../types/phase.types';
 
 export interface PhaseConfig {
   maxPhase: number;

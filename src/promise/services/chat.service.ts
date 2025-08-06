@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ChatMessage } from '../types';
+import { ChatMessage } from '../../types/socket.types';
 
 export interface ChatRoom {
   messages: ChatMessage[];

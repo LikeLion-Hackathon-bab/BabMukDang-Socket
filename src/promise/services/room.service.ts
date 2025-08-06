@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Server } from 'socket.io';
-import type { UserInfo, PhaseDataBroadcastPayload } from '../types';
-import { ExtendedSocket } from '../types/socket.types';
+import type { UserInfo } from '../../types/user.types';
+import type { ExtendedSocket } from '../../types/socket.types';
+import type { PhaseDataBroadcastPayload } from '../../types/phase.types';
 import { User } from '../decorators/user.decorator';
 
 export interface RoomState {
