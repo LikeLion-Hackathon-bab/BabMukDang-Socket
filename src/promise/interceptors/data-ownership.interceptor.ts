@@ -7,8 +7,6 @@ import {
 import { WsException } from '@nestjs/websockets';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { PhaseDataBroadcastPayload } from '../types';
-import { User } from '../decorators/user.decorator';
 
 @Injectable()
 export class DataOwnershipInterceptor implements NestInterceptor {
@@ -47,10 +45,7 @@ export class DataOwnershipInterceptor implements NestInterceptor {
     }
   }
 
-  private validatePhaseDataOwnership(
-    phaseData: Partial<PhaseDataBroadcastPayload['data']>,
-    @User('userId') userId: string,
-  ): void {
+  private validatePhaseDataOwnership(phaseData: any, userId: string): void {
     const fields = [
       'locationSelection',
       'recentMenus',

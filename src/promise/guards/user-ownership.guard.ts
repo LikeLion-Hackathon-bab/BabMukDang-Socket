@@ -1,7 +1,7 @@
 import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
 import { WsException } from '@nestjs/websockets';
 import { RoomService } from '../services/room.service';
-import { ExtendedSocket, MessageData } from '../types/socket.types';
+import { ExtendedSocket, MessageData } from '../../types/socket.types';
 
 @Injectable()
 export class UserOwnershipGuard implements CanActivate {

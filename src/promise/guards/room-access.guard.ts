@@ -16,10 +16,10 @@ export class RoomAccessGuard implements CanActivate {
     }
 
     // socket.data에서 roomId 확인
-    const userRoomId = client.data.roomId;
-    if (userRoomId !== roomId) {
-      throw new WsException('User is not in the room');
-    }
+    // const userRoomId = client.data.roomId;
+    // if (userRoomId !== roomId) {
+    //   throw new WsException('User is not in the room');
+    // }
 
     return true;
   }
