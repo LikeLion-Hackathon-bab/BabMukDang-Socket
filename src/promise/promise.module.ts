@@ -3,14 +3,10 @@ import { PromiseGateway } from './promise.gateway';
 import { RoomService } from './services/room.service';
 import { ChatService } from './services/chat.service';
 import { PhaseService } from './services/phase.service';
-import { GuardService } from './services/guard.service';
 
 // Guards
-import {
-  RoomAccessGuard,
-  UserOwnershipGuard,
-  RoomManagementGuard,
-} from './guards';
+import { UserOwnershipGuard } from './guards';
+import { JwtStrategy } from './guards/jwt.strategy';
 
 // Interceptors
 import {
@@ -27,12 +23,10 @@ import {
     RoomService,
     ChatService,
     PhaseService,
-    GuardService,
 
     // Guards
-    RoomAccessGuard,
     UserOwnershipGuard,
-    RoomManagementGuard,
+    JwtStrategy,
 
     // Interceptors
     LoggingInterceptor,
@@ -46,12 +40,9 @@ import {
     RoomService,
     ChatService,
     PhaseService,
-    GuardService,
 
     // Guards
-    RoomAccessGuard,
     UserOwnershipGuard,
-    RoomManagementGuard,
 
     // Interceptors
     LoggingInterceptor,

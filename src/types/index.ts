@@ -1,4 +1,6 @@
-export * from './user.types';
-export * from './socket.types';
-export * from './common.types';
-export * from './phase.types';
+import * as userTypes from './user.types';
+import * as socketTypes from './socket.types';
+import * as commonTypes from './common.types';
+import * as phaseTypes from './phase.types';
+
+export { userTypes, socketTypes, commonTypes, phaseTypes };

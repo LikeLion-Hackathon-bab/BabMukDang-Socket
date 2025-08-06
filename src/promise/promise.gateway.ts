@@ -9,9 +9,11 @@ import {
 } from '@nestjs/websockets';
 import { UseGuards, UseInterceptors } from '@nestjs/common';
 import { Server } from 'socket.io';
-import { UserInfo, ExtendedSocket } from '../types';
+import type { UserInfo } from '../types/user.types';
+import type { ExtendedSocket, ChatMessage } from '../types/socket.types';
+import type { RequestPhaseChangePayload } from '../types/phase.types';
 import { RoomService, ChatService, PhaseService } from './services';
-import { RoomAccessGuard, UserOwnershipGuard } from './guards';
+import { UserOwnershipGuard, JwtGuard } from './guards';
 import {
   LoggingInterceptor,
   DataOwnershipInterceptor,
@@ -19,20 +21,7 @@ import {
 } from './interceptors';
 import { UserInfoDto, RoomIdDto, PhaseDataDto } from './dto';
 
-// 임시로 타입 정의
-export interface ChatMessage {
-  senderId: string;
-  nickname: string;
-  message: string;
-  timestamp: number;
-  phase: number;
-}
-
-export interface RequestPhaseChangePayload {
-  requester: UserInfo;
-  targetPhase: number;
-}
-
+@UseGuards(JwtGuard)
 @WebSocketGateway({
   namespace: '/promise',
   cors: {
@@ -121,7 +110,6 @@ export class PromiseGateway
   }
 
   @SubscribeMessage('leave-room')
-  @UseGuards(RoomAccessGuard)
   handleLeaveRoom(
     @ConnectedSocket() client: ExtendedSocket,
     @MessageBody() payload: UserInfoDto & RoomIdDto,
@@ -141,7 +129,7 @@ export class PromiseGateway
   }
 
   @SubscribeMessage('chat-message')
-  @UseGuards(RoomAccessGuard, UserOwnershipGuard)
+  @UseGuards(UserOwnershipGuard)
   @UseInterceptors(DataOwnershipInterceptor)
   handleChatMessage(
     @ConnectedSocket() client: ExtendedSocket,
@@ -161,7 +149,7 @@ export class PromiseGateway
   }
 
   @SubscribeMessage('request-phase-change')
-  @UseGuards(RoomAccessGuard, UserOwnershipGuard)
+  @UseGuards(UserOwnershipGuard)
   handleRequestPhaseChange(
     @ConnectedSocket() client: ExtendedSocket,
     @MessageBody() payload: RequestPhaseChangePayload,
@@ -192,7 +180,7 @@ export class PromiseGateway
   }
 
   @SubscribeMessage('update-phase-data')
-  @UseGuards(RoomAccessGuard, UserOwnershipGuard)
+  @UseGuards(UserOwnershipGuard)
   @UseInterceptors(DataOwnershipInterceptor)
   handleUpdatePhaseData(
     @ConnectedSocket() client: ExtendedSocket,
@@ -217,13 +205,6 @@ export class PromiseGateway
     if (data) {
       this.roomService.updateRoomPhaseData(roomId, data);
       client.to(roomId).emit('phase-data-update', payload);
-
-      this.guardService.logDataModification(
-        'unknown',
-        roomId,
-        'phase-data',
-        'updated',
-      );
 
       console.log(`${logPrefix} Phase data updated in room ${roomId}`);
     }
