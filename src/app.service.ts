@@ -4,10 +4,10 @@ import { JwtService } from '@nestjs/jwt';
 export class AppService {
   constructor(private readonly jwtService: JwtService) {}
 
-  getJWT(): string {
+  getJWT(username: string, userId: string): string {
     const payload = {
-      userId: 1,
-      username: 'testuser',
+      sub: userId,
+      username: username,
       role: 'user',
       email: 'testuser@test.com',
     };
