@@ -3,7 +3,6 @@ import { WsContextStore } from './ws-context.store';
 
 function prefix(ctx?: ReturnType<WsContextStore['get']>) {
   if (!ctx) {
-    console.log('ctx is undefined');
     return '';
   }
   const parts = [

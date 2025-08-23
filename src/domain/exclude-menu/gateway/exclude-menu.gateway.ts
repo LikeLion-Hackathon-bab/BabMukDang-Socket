@@ -31,7 +31,6 @@ export class ExcludeMenuHandlers {
     );
     const responseDto =
       this.excludeMenuService.getAllUserExclusionsSerialized(roomId);
-    console.log(responseDto);
     // 다른 참여자들에게 메뉴 제외 상태 변경 알림
     this.server.to(roomId).emit('menu-exclusion-updated', responseDto);
   }

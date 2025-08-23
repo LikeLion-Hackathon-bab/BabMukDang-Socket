@@ -29,7 +29,6 @@ export const verifyToken = (
     const verify = jwtService.verify<TokenDto>(token, {
       secret: process.env.JWT_SECRET,
     });
-    console.log('userInfo !!!!', verify);
     if (!verify) {
       throw new UnauthorizedException('인증이 유효하지 않습니다.');
     }

@@ -22,7 +22,6 @@ export class WsContextInterceptor implements NestInterceptor {
   ) {}
 
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<any> {
-    console.log('WsContextInterceptor');
     if (ctx.getType() !== 'ws') return next.handle();
 
     const ws = ctx.switchToWs();
