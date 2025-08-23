@@ -4,6 +4,7 @@ import { MenuRecommendation, MenuStore } from '../types/menu.type';
 import { InvitationStage } from 'src/domain/common/types/stage';
 import { AnnouncementStage } from 'src/domain/common/types/stage';
 import { RoomStoreService } from 'src/domain/room/services/room.service';
+import { MenuRecommendationResponseDto } from '../dto/menu-recommendation.dto';
 
 @Injectable()
 export class MenuService extends BaseService<MenuStore> {
@@ -11,18 +12,37 @@ export class MenuService extends BaseService<MenuStore> {
 
   constructor(readonly roomStore: RoomStoreService) {
     super(roomStore);
+
     const emitter = this.roomStore.getEventEmitter();
     emitter.on(
+      'request-final-state',
+      ({
+        roomId,
+        stage,
+      }: {
+        roomId: string;
+        stage: AnnouncementStage | InvitationStage;
+      }) => {
+        if (stage !== 'menu') return;
+        const finalMenu = this.calculateFinalMenu(roomId);
+        const finalState = this.roomStore.getFinalState(roomId);
+        if (!finalState) return;
+        finalState.menu = finalMenu;
+      },
+    );
+    emitter.on(
       'request-initial-state',
-      ({ roomId, stage }: { roomId: string; stage: InvitationStage }) => {
+      async ({ roomId, stage }: { roomId: string; stage: InvitationStage }) => {
+        const state = await this.getStepState(roomId);
         if (stage !== 'menu') return;
         this.logger.log(`Initialized menu state for room ${roomId}`);
         emitter.emit('initial-state-response', {
           roomId,
           stage: 'menu',
-          initialState: Array.from(
-            this.getStepState(roomId)?.availableMenus || [],
-          ),
+          initialState: {
+            availableMenus: state?.availableMenus || [],
+            menuPerUserSelections: this.getAllUserSelectionsSerialized(roomId),
+          },
         });
       },
     );
@@ -30,25 +50,29 @@ export class MenuService extends BaseService<MenuStore> {
   /**
    * 상태를 가져옵니다
    */
-  getStepState(roomId: string): MenuStore | undefined {
+  async getStepState(roomId: string): Promise<MenuStore | undefined> {
     const room = this.roomStore.getRoom(roomId);
     if (!room || room.stage !== 'menu') return undefined;
-
-    // Step 4 상태가 없으면 초기화
     if (!room.menu) {
-      return this.initializeStep(roomId);
+      room.menu = await this.initializeStep(roomId);
     }
 
     return room.menu;
   }
 
+  getStepStateSync(roomId: string): MenuStore | undefined {
+    const room = this.roomStore.getRoom(roomId);
+    if (!room || room.stage !== 'menu') return undefined;
+
+    return room.menu;
+  }
   /**
    * 상태를 업데이트합니다
    */
-  updateStepState(
+  async updateStepState(
     roomId: string,
     updateFn: (state: MenuStore) => void,
-  ): MenuStore {
+  ): Promise<MenuStore> {
     const room = this.roomStore.getRoom(roomId);
     if (!room) {
       this.throwError('Room not found', roomId);
@@ -60,7 +84,7 @@ export class MenuService extends BaseService<MenuStore> {
 
     // Step 4 상태가 없으면 초기화
     if (!room.menu) {
-      room.menu = this.createInitialState();
+      room.menu = await this.createInitialState();
     }
 
     // 상태 업데이트
@@ -84,16 +108,11 @@ export class MenuService extends BaseService<MenuStore> {
     if (toStage !== 'restaurant') return false;
 
     // 상태 검증
-    const state = this.getStepState(roomId);
+    const state = this.getStepStateSync(roomId);
     if (!state) return false;
 
     // 최소 메뉴 수 확인
     if (state.availableMenus.length < 1) {
-      return false;
-    }
-
-    // 최종 선택된 메뉴가 있는지 확인
-    if (!state.finalSelection) {
       return false;
     }
 
@@ -103,13 +122,13 @@ export class MenuService extends BaseService<MenuStore> {
   /**
    * 상태를 초기화합니다
    */
-  initializeStep(roomId: string): MenuStore {
+  async initializeStep(roomId: string): Promise<MenuStore> {
     const room = this.roomStore.getRoom(roomId);
     if (!room) {
       this.throwError('Room not found', roomId);
     }
 
-    const initialState = this.createInitialState();
+    const initialState = await this.createInitialState();
     room.menu = initialState;
 
     this.logger.log(`Initialized menu state for room ${roomId}`);
@@ -119,10 +138,10 @@ export class MenuService extends BaseService<MenuStore> {
   /**
    * 상태를 리셋합니다
    */
-  resetStep(roomId: string): void {
+  async resetStep(roomId: string): Promise<void> {
     const room = this.roomStore.getRoom(roomId);
     if (room && room.menu) {
-      room.menu = this.createInitialState();
+      room.menu = await this.createInitialState();
       this.bumpVersion(roomId);
       this.logger.log(`Reset menu state for room ${roomId}`);
     }
@@ -132,7 +151,7 @@ export class MenuService extends BaseService<MenuStore> {
    * 상태가 유효한지 검증합니다
    */
   validateStepState(roomId: string): boolean {
-    const state = this.getStepState(roomId);
+    const state = this.getStepStateSync(roomId);
     if (!state) return false;
 
     // 기본 유효성 검사
@@ -143,14 +162,6 @@ export class MenuService extends BaseService<MenuStore> {
       if (selections.size > state.maxMenusPerUser) {
         return false;
       }
-    }
-
-    // 최종 선택된 메뉴가 실제로 존재하는지 검사
-    if (
-      state.finalSelection
-      // && !state.availableMenus.has(state.finalSelection)
-    ) {
-      return false;
     }
 
     return true;
@@ -192,15 +203,12 @@ export class MenuService extends BaseService<MenuStore> {
   private validateRemoveMenu(roomId: string, payload: any): boolean {
     if (!payload.menuId || typeof payload.menuId !== 'string') return false;
 
-    const state = this.getStepState(roomId);
+    const state = this.getStepStateSync(roomId);
     if (!state) return false;
 
     // 메뉴가 존재하는지 확인
     if (!state.availableMenus.some((menu) => menu.code === payload.menuId))
       return false;
-
-    // 최종 선택된 메뉴는 제거할 수 없음
-    if (state.finalSelection === payload.menuId) return false;
 
     return true;
   }
@@ -212,7 +220,7 @@ export class MenuService extends BaseService<MenuStore> {
     if (!payload.menuId || typeof payload.menuId !== 'string') return false;
     if (!payload.userId || typeof payload.userId !== 'string') return false;
 
-    const state = this.getStepState(roomId);
+    const state = this.getStepStateSync(roomId);
     if (!state) return false;
 
     // 메뉴가 존재하는지 확인
@@ -230,7 +238,7 @@ export class MenuService extends BaseService<MenuStore> {
   private validateSetFinalMenu(roomId: string, payload: any): boolean {
     if (!payload.menuId || typeof payload.menuId !== 'string') return false;
 
-    const state = this.getStepState(roomId);
+    const state = this.getStepStateSync(roomId);
     if (!state) return false;
 
     // 메뉴가 존재하는지 확인
@@ -243,33 +251,15 @@ export class MenuService extends BaseService<MenuStore> {
   /**
    * 초기 상태를 생성합니다
    */
-  private createInitialState(): MenuStore {
+  private async createInitialState(): Promise<MenuStore> {
+    const menus = await this.getMenuRecommendation();
+    const availableMenus = menus.map((menu) => ({
+      code: menu.code,
+      label: menu.label,
+    }));
     return {
-      availableMenus: [
-        {
-          code: '1',
-          label: '김밥',
-          group_score: 0,
-          member_scores: {},
-          reasons: [],
-        },
-        {
-          code: '2',
-          label: '순두부찌개',
-          group_score: 0,
-          member_scores: {},
-          reasons: [],
-        },
-        {
-          code: '3',
-          label: '돌솥비빔밥',
-          group_score: 0,
-          member_scores: {},
-          reasons: [],
-        },
-      ],
+      availableMenus,
       menuPerUserSelections: new Map(),
-      finalSelection: undefined,
       maxMenusPerUser: 3,
       selectionDeadline: undefined,
     };
@@ -327,7 +317,7 @@ export class MenuService extends BaseService<MenuStore> {
     // if (!this.validateSelectMenu(roomId, { menuId, userId })) {
     //   return false;
     // }
-    const state = this.getStepState(roomId);
+    const state = this.getStepStateSync(roomId);
     if (!state) return false;
     let userSelections = state.menuPerUserSelections.get(menuId);
     if (!userSelections) {
@@ -342,34 +332,6 @@ export class MenuService extends BaseService<MenuStore> {
       userSelections.add(userId);
     }
     this.logger.log(`User ${userId} selected menu ${menuId} in room ${roomId}`);
-    return true;
-  }
-
-  /**
-   * 최종 메뉴를 설정합니다
-   */
-  setFinalMenu(roomId: string, menuId: string): boolean {
-    if (!this.validateSetFinalMenu(roomId, { menuId })) {
-      return false;
-    }
-
-    this.updateStepState(roomId, (state) => {
-      state.finalSelection = menuId;
-    });
-
-    this.logger.log(`Set final menu to ${menuId} in room ${roomId}`);
-    return true;
-  }
-
-  /**
-   * 최종 메뉴 선택을 해제합니다
-   */
-  unsetFinalMenu(roomId: string): boolean {
-    this.updateStepState(roomId, (state) => {
-      state.finalSelection = undefined;
-    });
-
-    this.logger.log(`Unset final menu in room ${roomId}`);
     return true;
   }
 
@@ -405,14 +367,14 @@ export class MenuService extends BaseService<MenuStore> {
    * 메뉴 목록을 가져옵니다
    */
   getMenus(roomId: string): MenuRecommendation[] {
-    const state = this.getStepState(roomId);
+    const state = this.getStepStateSync(roomId);
     return state ? state.availableMenus : [];
   }
   /**
    * 사용자의 메뉴 선택을 가져옵니다
    */
   getUserSelections(roomId: string, userId: string): string[] {
-    const state = this.getStepState(roomId);
+    const state = this.getStepStateSync(roomId);
     if (!state) return [];
 
     const selections = state.menuPerUserSelections.get(userId);
@@ -423,7 +385,7 @@ export class MenuService extends BaseService<MenuStore> {
    * 모든 사용자의 메뉴 선택을 가져옵니다
    */
   getAllUserSelections(roomId: string): Map<string, Set<string>> {
-    const state = this.getStepState(roomId);
+    const state = this.getStepStateSync(roomId);
     if (!state) return new Map();
 
     return state.menuPerUserSelections;
@@ -433,7 +395,7 @@ export class MenuService extends BaseService<MenuStore> {
     menuId: string;
     selectedUsers: string[];
   }[] {
-    const state = this.getStepState(roomId);
+    const state = this.getStepStateSync(roomId);
     if (!state) return [];
     const userSelections = state.menuPerUserSelections;
     const serializedUserSelections = Array.from(userSelections.entries()).map(
@@ -443,6 +405,39 @@ export class MenuService extends BaseService<MenuStore> {
       }),
     );
     return serializedUserSelections;
+  }
+
+  async getMenuRecommendation(): Promise<MenuRecommendation[]> {
+    const response = (await fetch(
+      `${process.env.FOOD_RECOMMEND_SERVER}/v1/recommend`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          user_ids: ['user_a', 'user_b', 'user_c', 'user_d'],
+        }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    ).then((res) => res.json())) as MenuRecommendationResponseDto;
+    return response.recommendations;
+  }
+
+  calculateFinalMenu(roomId: string): MenuRecommendation | undefined {
+    const state = this.getStepStateSync(roomId);
+    if (!state) return undefined;
+    const room = this.roomStore.getRoom(roomId);
+    if (!room) return undefined;
+    let finalMenu: MenuRecommendation | undefined;
+    let maxVotes = 0;
+    state.availableMenus.forEach((menu) => {
+      const votes = state.menuPerUserSelections.get(menu.label);
+      if (votes && votes.size > maxVotes) {
+        maxVotes = votes.size;
+        finalMenu = menu;
+      }
+    });
+    return finalMenu;
   }
 
   /**

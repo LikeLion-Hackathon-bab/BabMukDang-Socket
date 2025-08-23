@@ -3,23 +3,13 @@ import { Id } from 'src/domain/common/types';
 export interface MenuStore {
   availableMenus: MenuRecommendation[]; // menuId -> MenuRecommendation
   menuPerUserSelections: Map<Id, Set<Id>>; // menuId -> Set<userId>
-  finalSelection?: Id; // 최종 선택된 메뉴 ID
   maxMenusPerUser: number; // 사용자당 최대 선택 가능한 메뉴 수
   selectionDeadline?: number; // 선택 마감 시간 (timestamp)
-}
-
-export interface MenuOption {
-  menuCategoryId: Id;
-  menuName: string;
-  imageUrl?: string;
 }
 
 export interface MenuRecommendation {
   code: Id;
   label: string;
-  group_score: number;
-  member_scores: Record<Id, number>;
-  reasons: string[];
 }
 
 // recommendations": [
