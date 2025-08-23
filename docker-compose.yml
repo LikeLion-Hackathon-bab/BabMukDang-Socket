@@ -12,6 +12,6 @@ services:
     ports:
       - '${PORT:-3000}:${PORT:-3000}'
   ai-server:
-    image: gosua/recommend-ai:1.0.0
+    image: gosua/recommend-ai:1.0.1
     ports:
       - '8010:8010'
