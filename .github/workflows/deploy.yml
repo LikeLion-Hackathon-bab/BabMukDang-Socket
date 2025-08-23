@@ -22,16 +22,12 @@ jobs:
           script_stop: true
           script: |
             set -e
-            if [ -z "${{ secrets.EC2_PATH }}" ]; then
-              echo "Missing required secret: EC2_PATH" >&2
-              exit 1
-            fi
+            BASE_DIR="/home/ubuntu"
+            REPO_DIR="$BASE_DIR/BabMukDang-Socket"
+            REPO_URL="${{ secrets.EC2_REPO_SSH }}" # e.g., git@github.com:owner/BabMukDang-Socket.git
 
-            # Run as root without loading interactive login shell to avoid environment/rc side effects
-            sudo -H -n env REPO_DIR="${{ secrets.EC2_PATH }}" REPO_URL="${{ secrets.EC2_REPO_SSH }}" bash -s <<'SCRIPT'
-            set -e
             mkdir -p "$REPO_DIR"
-            cd "$REPO_DIR"
+            cd "$REPO_DIR" || { cd "$BASE_DIR"; [ -n "${REPO_URL:-}" ] && git clone "$REPO_URL" "BabMukDang-Socket"; cd "$REPO_DIR"; }
 
             # First-time bootstrap if the repo is not present
             if [ ! -d .git ]; then
@@ -48,9 +44,8 @@ jobs:
             git checkout main
             git reset --hard origin/main
             # Ensure latest images and rebuild containers (supports both v1 and v2 compose)
-            if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
-            $DC pull || true
-            $DC up --build -d
+            if docker compose version >/dev/null 2>&1; then SUDO_DC="sudo docker compose"; else SUDO_DC="sudo docker-compose"; fi
+            $SUDO_DC pull || true
+            $SUDO_DC up --build -d
             # Optional cleanup (non-fatal)
-            docker system prune -f || true
-            SCRIPT
+            sudo docker system prune -f || true
