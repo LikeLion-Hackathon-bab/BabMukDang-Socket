@@ -33,7 +33,7 @@ export class RestaurantHandlers {
     );
 
     const responseDto =
-      this.restaurantService.getAllUserPicksSerialized(roomId);
+      this.restaurantService.getRestaurantUserListSerialized(roomId);
     this.server.to(roomId).emit('restaurant-pick-updated', responseDto);
   }
 

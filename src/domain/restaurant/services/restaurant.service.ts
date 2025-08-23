@@ -11,12 +11,31 @@ export class RestaurantService extends BaseService<RestaurantStore> {
   constructor(readonly roomStore: RoomStoreService) {
     super(roomStore);
     const eventEmitter = this.roomStore.getEventEmitter();
+    eventEmitter.on(
+      'request-final-state',
+      ({
+        roomId,
+        stage,
+      }: {
+        roomId: string;
+        stage: AnnouncementStage | InvitationStage;
+      }) => {
+        if (stage !== 'restaurant') return;
+        const finalRestaurant = this.calculateFinalRestaurant(roomId);
+        const finalState = this.roomStore.getFinalState(roomId);
+        if (!finalState) return;
+        finalState.restaurant = finalRestaurant;
+      },
+    );
     eventEmitter.on('request-initial-state', async ({ roomId, stage }) => {
       if (stage !== 'restaurant') return;
       eventEmitter.emit('initial-state-response', {
         roomId,
         stage: 'restaurant',
-        initialState: await this.getStepState(roomId),
+        initialState: {
+          ...(await this.getStepState(roomId)),
+          restaurantUserList: this.getRestaurantUserListSerialized(roomId),
+        },
       });
     });
   }
@@ -96,8 +115,7 @@ export class RestaurantService extends BaseService<RestaurantStore> {
     ).then((res) => res.documents);
     return {
       initialRestaurants,
-      anchorCandidateId: '',
-      pickedByUser: new Map(),
+      restaurantUserList: new Map(),
       // sortBy: 'DIST',
       // filters: {
       //   categories: [],
@@ -162,53 +180,11 @@ export class RestaurantService extends BaseService<RestaurantStore> {
     const state = this.getStepStateSync(roomId);
     if (!state) return false;
 
-    let userPicks = state.pickedByUser.get(userId);
-    if (!userPicks) {
-      userPicks = new Set();
-      state.pickedByUser.set(userId, userPicks);
-    }
-
-    if (userPicks.has(restaurantId)) {
-      userPicks.delete(restaurantId);
-    } else {
-      userPicks.add(restaurantId);
-    }
+    state.restaurantUserList.set(userId, restaurantId);
 
     this.logger.log(
-      `User ${userId} ${
-        userPicks.has(restaurantId) ? 'picked' : 'unpicked'
-      } restaurant ${restaurantId} in room ${roomId}`,
+      `User ${userId} picked restaurant ${restaurantId} in room ${roomId}`,
     );
-    return true;
-  }
-
-  /**
-   * 최종 레스토랑을 설정합니다
-   */
-  setFinalRestaurant(roomId: string, restaurantId: string): boolean {
-    // if (!this.validateSetFinalRestaurant(roomId, { restaurantId })) {
-    //   return false;
-    // }
-
-    this.updateStepState(roomId, (state) => {
-      state.finalRestaurant = restaurantId;
-    });
-
-    this.logger.log(
-      `Set final restaurant to ${restaurantId} in room ${roomId}`,
-    );
-    return true;
-  }
-
-  /**
-   * 최종 레스토랑 선택을 해제합니다
-   */
-  unsetFinalRestaurant(roomId: string): boolean {
-    this.updateStepState(roomId, (state) => {
-      state.finalRestaurant = undefined;
-    });
-
-    this.logger.log(`Unset final restaurant in room ${roomId}`);
     return true;
   }
 
@@ -284,7 +260,7 @@ export class RestaurantService extends BaseService<RestaurantStore> {
   getRestaurant(roomId: string, restaurantId: string): Restaurant | undefined {
     const state = this.getStepStateSync(roomId);
     return state?.initialRestaurants.find(
-      (restaurant) => restaurant.restaurantId === restaurantId,
+      (restaurant) => restaurant.id === restaurantId,
     );
   }
 
@@ -295,87 +271,53 @@ export class RestaurantService extends BaseService<RestaurantStore> {
     const state = this.getStepStateSync(roomId);
     if (!state) return [];
 
-    const picks = state.pickedByUser.get(userId);
+    const picks = state.restaurantUserList.get(userId);
     return picks ? Array.from(picks) : [];
   }
 
   /**
    * 모든 사용자의 선택을 가져옵니다
    */
-  getAllUserPicks(roomId: string): Map<string, Set<string>> {
+  getAllUserPicks(roomId: string): Map<string, string> {
     const state = this.getStepStateSync(roomId);
     if (!state) return new Map();
-    return state.pickedByUser;
+    return state.restaurantUserList;
   }
 
-  getAllUserPicksSerialized(roomId: string): {
+  getRestaurantUserListSerialized(roomId: string): {
+    restaurantId: string;
     userId: string;
-    picks: string[];
   }[] {
     const state = this.getStepStateSync(roomId);
     if (!state) return [];
-    const userPicks = state.pickedByUser;
-    const serializedUserPicks = Array.from(userPicks.entries()).map(
-      ([userId, picks]) => ({
-        userId,
-        picks: Array.from(picks),
-      }),
-    );
-    return serializedUserPicks;
+    const restaurantUserList = state.restaurantUserList;
+    const serializedRestaurantUserList = Array.from(
+      restaurantUserList.entries(),
+    ).map(([userId, restaurantId]) => ({
+      userId,
+      restaurantId,
+    }));
+    return serializedRestaurantUserList;
   }
-  /**
-   * 레스토랑별 선택 수를 가져옵니다
-   */
-  getRestaurantPickCounts(roomId: string): Map<string, number> {
+
+  calculateFinalRestaurant(roomId: string): Restaurant | undefined {
     const state = this.getStepStateSync(roomId);
-    if (!state) return new Map();
+    if (!state) return undefined;
+    const room = this.roomStore.getRoom(roomId);
+    if (!room) return undefined;
 
-    const pickCounts = new Map<string, number>();
+    const votes = new Map<string, number>();
+    state.restaurantUserList.forEach((restaurantId, userId) => {
+      votes.set(restaurantId, (votes.get(restaurantId) || 0) + 1);
+    });
+    const maxVotesRestaurantId = Array.from(votes.entries()).reduce(
+      (max, [restaurantId, votes]) =>
+        votes > max[1] ? [restaurantId, votes] : max,
+      ['', 0],
+    )[0];
 
-    // 모든 레스토랑을 0으로 초기화
-    for (const restaurantId of state.initialRestaurants.map(
-      (restaurant) => restaurant.restaurantId,
-    )) {
-      pickCounts.set(restaurantId, 0);
-    }
-
-    // 선택 수 계산
-    for (const picks of state.pickedByUser.values()) {
-      for (const restaurantId of picks) {
-        const currentCount = pickCounts.get(restaurantId) || 0;
-        pickCounts.set(restaurantId, currentCount + 1);
-      }
-    }
-
-    return pickCounts;
-  }
-
-  /**
-   * 가장 많은 선택을 받은 레스토랑을 가져옵니다
-   */
-  getMostPickedRestaurant(roomId: string): string | undefined {
-    const pickCounts = this.getRestaurantPickCounts(roomId);
-    if (pickCounts.size === 0) return undefined;
-
-    let maxPicks = 0;
-    let mostPickedId: string | undefined;
-
-    for (const [restaurantId, picks] of pickCounts.entries()) {
-      if (picks > maxPicks) {
-        maxPicks = picks;
-        mostPickedId = restaurantId;
-      }
-    }
-
-    return mostPickedId;
-  }
-
-  /**
-   * 최종 선택된 레스토랑을 가져옵니다
-   */
-  getFinalRestaurant(roomId: string): string | undefined {
-    const state = this.getStepStateSync(roomId);
-    return state?.finalRestaurant;
+    const finalRestaurant = this.getRestaurant(roomId, maxVotesRestaurantId);
+    return finalRestaurant;
   }
 
   /**
@@ -389,8 +331,8 @@ export class RestaurantService extends BaseService<RestaurantStore> {
     if (!participants) return false;
 
     for (const [userId] of participants) {
-      const picks = state.pickedByUser.get(userId);
-      if (!picks || picks.size === 0) {
+      const picks = state.restaurantUserList.get(userId);
+      if (!picks) {
         return false;
       }
     }
