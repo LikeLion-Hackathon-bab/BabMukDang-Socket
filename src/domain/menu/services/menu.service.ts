@@ -84,7 +84,7 @@ export class MenuService extends BaseService<MenuStore> {
 
     // Step 4 상태가 없으면 초기화
     if (!room.menu) {
-      room.menu = await this.createInitialState();
+      room.menu = await this.createInitialState(roomId);
     }
 
     // 상태 업데이트
@@ -128,7 +128,7 @@ export class MenuService extends BaseService<MenuStore> {
       this.throwError('Room not found', roomId);
     }
 
-    const initialState = await this.createInitialState();
+    const initialState = await this.createInitialState(roomId);
     room.menu = initialState;
 
     this.logger.log(`Initialized menu state for room ${roomId}`);
@@ -141,7 +141,7 @@ export class MenuService extends BaseService<MenuStore> {
   async resetStep(roomId: string): Promise<void> {
     const room = this.roomStore.getRoom(roomId);
     if (room && room.menu) {
-      room.menu = await this.createInitialState();
+      room.menu = await this.createInitialState(roomId);
       this.bumpVersion(roomId);
       this.logger.log(`Reset menu state for room ${roomId}`);
     }
@@ -251,8 +251,8 @@ export class MenuService extends BaseService<MenuStore> {
   /**
    * 초기 상태를 생성합니다
    */
-  private async createInitialState(): Promise<MenuStore> {
-    const menus = await this.getMenuRecommendation();
+  private async createInitialState(roomId: string): Promise<MenuStore> {
+    const menus = await this.getMenuRecommendation(roomId);
     const availableMenus = menus.map((menu) => ({
       code: menu.code,
       label: menu.label,
