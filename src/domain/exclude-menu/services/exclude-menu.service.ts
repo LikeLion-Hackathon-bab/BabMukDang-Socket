@@ -18,6 +18,13 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
   constructor(readonly roomStore: RoomStoreService) {
     super(roomStore);
     const emitter = this.roomStore.getEventEmitter();
+    emitter.on('request-final-state', ({ roomId, stage }) => {
+      if (stage !== 'exclude-menu') return;
+      const finalExclusions = this.calculateFinalExclusions(roomId);
+      const finalState = this.roomStore.getFinalState(roomId);
+      if (!finalState) return;
+      finalState.excludeMenu = finalExclusions;
+    });
     emitter.on(
       'request-initial-state',
       ({ roomId, stage }: { roomId: string; stage: InvitationStage }) => {
@@ -222,7 +229,6 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
     }));
     return {
       userExclusions: new Map(),
-      finalExclusions: new Set(),
       initialUserCategories,
       maxExclusionsPerUser: 5,
     };
@@ -303,7 +309,6 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
     const state = this.getStepState(roomId);
     if (!state) return [];
     const userExclusions = state.userExclusions;
-    console.log(userExclusions);
     const serializedUserExclusions = Array.from(userExclusions.entries()).map(
       ([userId, exclusions]) => ({
         userId,
@@ -311,16 +316,6 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
       }),
     );
     return serializedUserExclusions;
-  }
-
-  /**
-   * 최종 제외된 메뉴 카테고리를 가져옵니다
-   */
-  getFinalExclusions(roomId: string): ExclusionCategoryId[] {
-    const state = this.getStepState(roomId);
-    if (!state) return [];
-
-    return Array.from(state.finalExclusions);
   }
 
   /**
@@ -381,6 +376,22 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
   //   return true;
   // }
 
+  calculateFinalExclusions(roomId: string): ExclusionCategoryId[] {
+    const state = this.getStepState(roomId);
+    if (!state) return [];
+    const participants = this.getParticipants(roomId);
+    if (!participants) return [];
+    const finalExclusions = new Set<ExclusionCategoryId>();
+    for (const [userId] of participants) {
+      const userExclusions = state.userExclusions.get(userId);
+      if (!userExclusions) continue;
+      for (const exclusion of userExclusions) {
+        finalExclusions.add(exclusion);
+      }
+    }
+    return Array.from(finalExclusions);
+  }
+
   /**
    * 최대 제외 수를 설정합니다
    */
@@ -395,37 +406,5 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
       `Set max exclusions per user to ${maxCount} in room ${roomId}`,
     );
     return true;
-  }
-
-  /**
-   * 최종 제외 카테고리를 재계산합니다
-   */
-  private recalculateFinalExclusions(state: ExcludeMenuStore): void {
-    // 모든 사용자의 제외 카테고리 교집합을 찾습니다
-    state.finalExclusions.clear();
-
-    if (state.userExclusions.size === 0) return;
-
-    const [firstUserId] = state.userExclusions.keys();
-    const firstUserExclusions = state.userExclusions.get(firstUserId);
-    if (!firstUserExclusions) return;
-
-    // 첫 번째 사용자의 제외 카테고리로 시작
-    for (const category of firstUserExclusions) {
-      let allUsersExclude = true;
-
-      // 모든 사용자가 이 카테고리를 제외하는지 확인
-      for (const [userId, exclusions] of state.userExclusions.entries()) {
-        if (userId === firstUserId) continue;
-        if (!exclusions.has(category)) {
-          allUsersExclude = false;
-          break;
-        }
-      }
-
-      if (allUsersExclude) {
-        state.finalExclusions.add(category);
-      }
-    }
   }
 }
