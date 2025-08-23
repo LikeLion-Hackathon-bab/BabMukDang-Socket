@@ -22,7 +22,26 @@ jobs:
           script_stop: true
           script: |
             set -e
-            cd "${{ secrets.EC2_PATH }}"
+            if [ -z "${{ secrets.EC2_PATH }}" ]; then
+              echo "Missing required secret: EC2_PATH" >&2
+              exit 1
+            fi
+
+            REPO_DIR="${{ secrets.EC2_PATH }}"
+            REPO_URL="${{ secrets.EC2_REPO_SSH }}" # e.g., git@github.com:owner/BabMukDang-Socket.git
+
+            mkdir -p "$REPO_DIR"
+            cd "$REPO_DIR"
+
+            # First-time bootstrap if the repo is not present
+            if [ ! -d .git ]; then
+              if [ -z "$REPO_URL" ]; then
+                echo "Repository not found at $REPO_DIR and EC2_REPO_SSH is not set. Set EC2_REPO_SSH to SSH URL (e.g., git@github.com:owner/BabMukDang-Socket.git)." >&2
+                exit 1
+              fi
+              git clone "$REPO_URL" .
+            fi
+
             git fetch --all --prune
             git checkout main
             git reset --hard origin/main
