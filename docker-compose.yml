@@ -11,9 +11,6 @@ services:
       - .env
     ports:
       - '${PORT:-3000}:${PORT:-3000}'
-    volumes:
-      - ./:/app # 개발용: 코드 변경을 반영하려면 사용(프로덕션에선 제거)
-
   ai-server:
     image: gosua/recommend-ai:1.0.0
     ports:
