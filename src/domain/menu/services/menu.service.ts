@@ -407,13 +407,18 @@ export class MenuService extends BaseService<MenuStore> {
     return serializedUserSelections;
   }
 
-  async getMenuRecommendation(): Promise<MenuRecommendation[]> {
+  async getMenuRecommendation(roomId: string): Promise<MenuRecommendation[]> {
+    const participants = this.roomStore.getParticipants(roomId);
+    if (participants.size === 0) return [];
+    const excludeMenu = this.roomStore.getFinalState(roomId)?.excludeMenu;
     const response = (await fetch(
       `${process.env.FOOD_RECOMMEND_SERVER}/v1/recommend`,
       {
         method: 'POST',
         body: JSON.stringify({
-          user_ids: ['user_a', 'user_b', 'user_c', 'user_d'],
+          user_ids: Array.from(participants.keys()),
+          exclude_menu: excludeMenu,
+          top_k: 6,
         }),
         headers: {
           'Content-Type': 'application/json',

@@ -23,6 +23,7 @@ async function bootstrap() {
   app.enableCors({
     origin: ['https://bab-muk-dang-client.vercel.app', 'http://localhost:3001'],
     credentials: true,
+    exposedHeaders: ['Authorization'],
   });
 
   const port = configService.get<number>('PORT') ?? 3000;
