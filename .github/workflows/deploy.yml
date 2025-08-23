@@ -22,8 +22,8 @@ jobs:
           script_stop: true
           script: |
             set -e
-            BASE_DIR="/home/ubuntu"
-            REPO_DIR="$BASE_DIR/BabMukDang-Socket"
+            BASE_DIR="/"
+            REPO_DIR="/BabMukDang-Socket"
             REPO_URL="${{ secrets.EC2_REPO_SSH }}" # e.g., git@github.com:owner/BabMukDang-Socket.git
 
             mkdir -p "$REPO_DIR"
@@ -44,7 +44,7 @@ jobs:
             git checkout main
             git reset --hard origin/main
             # Ensure latest images and rebuild containers (supports both v1 and v2 compose)
-            if docker compose version >/dev/null 2>&1; then SUDO_DC="sudo docker compose"; else SUDO_DC="sudo docker-compose"; fi
+            if docker compose version >/dev/null 2>&1; then SUDO_DC="docker compose"; else SUDO_DC="docker-compose"; fi
             $SUDO_DC pull || true
             $SUDO_DC up --build -d
             # Optional cleanup (non-fatal)
