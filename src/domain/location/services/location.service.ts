@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { BaseService } from '../../common/base.service';
 import { Id } from 'src/domain/common/types';
 import { LocationCandidateDto } from 'src/domain/location/dto/request.dto';
-import { LocationStore } from '../types/location.type';
+import { LocationCandidate, LocationStore } from '../types/location.type';
 import {
   AnnouncementStage,
   InvitationStage,
@@ -15,6 +15,23 @@ export class LocationService extends BaseService<LocationStore> {
   constructor(readonly roomStore: RoomStoreService) {
     super(roomStore);
     const emitter = this.roomStore.getEventEmitter();
+
+    emitter.on(
+      'request-final-state',
+      ({
+        roomId,
+        stage,
+      }: {
+        roomId: string;
+        stage: AnnouncementStage | InvitationStage;
+      }) => {
+        if (stage !== 'location-vote') return;
+        const finalLocation = this.calculateFinalLocation(roomId);
+        const finalState = this.roomStore.getFinalState(roomId);
+        if (!finalState) return;
+        finalState.location = finalLocation;
+      },
+    );
     emitter.on(
       'request-initial-state',
       ({ roomId, stage }: { roomId: string; stage: InvitationStage }) => {
@@ -104,11 +121,6 @@ export class LocationService extends BaseService<LocationStore> {
       return false;
     }
 
-    // 선택된 후보가 있는지 확인
-    if (!state.currentSelection) {
-      return false;
-    }
-
     return true;
   }
 
@@ -152,14 +164,6 @@ export class LocationService extends BaseService<LocationStore> {
 
     // 후보 수와 최대 후보 수 검사
     if (state.candidates.size > state.maxCandidates) return false;
-
-    // 선택된 후보가 실제로 존재하는지 검사
-    if (
-      state.currentSelection &&
-      !state.candidates.has(state.currentSelection)
-    ) {
-      return false;
-    }
 
     return true;
   }
@@ -215,9 +219,6 @@ export class LocationService extends BaseService<LocationStore> {
     // 후보가 존재하는지 확인
     if (!state.candidates.has(payload.candidateId)) return false;
 
-    // 선택된 후보는 제거할 수 없음
-    if (state.currentSelection === payload.candidateId) return false;
-
     return true;
   }
 
@@ -260,13 +261,11 @@ export class LocationService extends BaseService<LocationStore> {
   private serializeLocationStore(store: LocationStore): {
     candidates: LocationCandidateDto[];
     votes: Set<Id>[];
-    currentSelection: Id | undefined;
     maxCandidates: number;
   } {
     return {
       candidates: Array.from(store.candidates.values()),
       votes: Array.from(store.votes.values()),
-      currentSelection: store.currentSelection,
       maxCandidates: store.maxCandidates,
     };
   }
@@ -278,7 +277,6 @@ export class LocationService extends BaseService<LocationStore> {
     return {
       candidates: new Map<Id, LocationCandidateDto>(),
       votes: new Map<Id, Set<Id>>(),
-      currentSelection: undefined,
       maxCandidates: 20,
     };
   }
@@ -298,7 +296,7 @@ export class LocationService extends BaseService<LocationStore> {
     placeName: string;
     lat: number;
     lng: number;
-    address: string | undefined;
+    address: string;
     userId: string;
   }): boolean {
     const state = this.getStepState(roomId);
@@ -348,11 +346,6 @@ export class LocationService extends BaseService<LocationStore> {
     this.updateStepState(roomId, (state) => {
       state.candidates.delete(candidateId);
       state.votes.delete(candidateId);
-
-      // 선택된 후보였다면 선택 해제
-      if (state.currentSelection === candidateId) {
-        state.currentSelection = undefined;
-      }
     });
 
     this.logger.log(`Removed candidate ${candidateId} from room ${roomId}`);
@@ -425,20 +418,32 @@ export class LocationService extends BaseService<LocationStore> {
   }
 
   /**
+   * 최종 후보를 계산합니다
+   */
+  calculateFinalLocation(roomId: string): LocationCandidate | undefined {
+    const state = this.getStepState(roomId);
+    if (!state) return undefined;
+    const room = this.roomStore.getRoom(roomId);
+    if (!room) return undefined;
+    let finalLocation: LocationCandidate | undefined;
+    let maxVotes = 0;
+    state.candidates.forEach((candidate) => {
+      const votes = state.votes.get(candidate.id);
+      if (votes && votes.size > maxVotes) {
+        maxVotes = votes.size;
+        finalLocation = candidate;
+      }
+    });
+    return finalLocation;
+  }
+
+  /**
    * 사용자가 특정 후보에 투표했는지 확인합니다
    */
   hasUserVoted(roomId: string, candidateId: Id, userId: Id): boolean {
     const state = this.getStepState(roomId);
     const votes = state?.votes.get(candidateId);
     return votes ? votes.has(userId) : false;
-  }
-
-  /**
-   * 현재 선택된 후보를 가져옵니다
-   */
-  getCurrentSelection(roomId: string): Id | undefined {
-    const state = this.getStepState(roomId);
-    return state?.currentSelection;
   }
 
   /**
