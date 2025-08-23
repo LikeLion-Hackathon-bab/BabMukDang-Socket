@@ -117,8 +117,10 @@ export class RoomHandlers {
               `Room ${roomId} auto-progressed from stage ${current} to ${nextStage}`,
             );
           } else {
-            // 최종 단계에서는 추가 진행 없음. 필요 시 완료 이벤트 방송 가능
             this.logger.log(`Room ${roomId} already at final stage ${current}`);
+            console.log(this.roomService.getFinalState(roomId));
+            // todo: 이벤트 방송, 다 나가면 룸 삭제
+            this.roomService.deleteRoom(roomId);
           }
         } catch (error) {
           const errorMessage =
@@ -177,6 +179,7 @@ export class RoomHandlers {
           } else {
             // 최종 단계에서는 추가 진행 없음. 필요 시 완료 이벤트 방송 가능
             this.logger.log(`Room ${roomId} already at final stage ${current}`);
+            this.roomService.deleteRoom(roomId);
           }
         } catch (error) {
           const errorMessage =

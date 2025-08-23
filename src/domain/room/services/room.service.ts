@@ -4,7 +4,7 @@ import { ChatMessage } from 'src/domain/chat/types/chat.type';
 import { ExtendedParticipant } from '../types/room.type';
 import { Id } from 'src/domain/common/types';
 import { WsLogger } from 'src/domain/common/logger/ws-logger.service';
-import { RoomStore } from '../types/room.type';
+import { FinalState, RoomStore } from '../types/room.type';
 import {
   AnnouncementStage,
   InvitationStage,
@@ -27,6 +27,12 @@ export class RoomStoreService {
         stage: 'waiting',
         participants: new Map(),
         chat: [],
+        final: {
+          location: undefined,
+          excludeMenu: undefined,
+          menu: undefined,
+          restaurant: undefined,
+        },
       };
 
       this.rooms.set(roomId, room);
@@ -101,7 +107,11 @@ export class RoomStoreService {
     const room = this.rooms.get(roomId);
     return room?.participants.size || 0;
   }
-
+  getFinalState(roomId: string): FinalState | undefined {
+    const room = this.rooms.get(roomId);
+    if (!room) return undefined;
+    return room?.final;
+  }
   /**
    * 방 단계 변경
    */
@@ -173,6 +183,10 @@ export class RoomStoreService {
     const readyCount = this.getParticipantReadyCount(roomId);
     if (readyCount === room.participants.size) {
       this.logger.log(`All participants are ready in room ${roomId}`);
+      this.eventEmitter.emit('request-final-state', {
+        roomId,
+        stage: room.stage,
+      });
       setTimeout(() => {
         const afterReadyCount = this.getParticipantReadyCount(roomId);
         if (afterReadyCount === room.participants.size) {

@@ -1,15 +1,30 @@
 import { Id } from 'src/domain/common/types';
 import { Participant } from 'src/domain/room/dto';
 import { ChatMessage } from 'src/domain/chat/types/chat.type';
-import { MenuStore } from 'src/domain/menu/types/menu.type';
-import { ExcludeMenuStore } from 'src/domain/exclude-menu/types/exclude-menu.types';
-import { LocationStore } from 'src/domain/location/types/location.type';
-import { RestaurantStore } from 'src/domain/restaurant/types/restaurant.type';
+import { MenuRecommendation, MenuStore } from 'src/domain/menu/types/menu.type';
+import {
+  ExcludeMenuStore,
+  ExclusionCategoryId,
+} from 'src/domain/exclude-menu/types/exclude-menu.types';
+import {
+  LocationCandidate,
+  LocationStore,
+} from 'src/domain/location/types/location.type';
+import {
+  Restaurant,
+  RestaurantStore,
+} from 'src/domain/restaurant/types/restaurant.type';
 import {
   AnnouncementStage,
   InvitationStage,
 } from 'src/domain/common/types/stage';
 
+export interface FinalState {
+  location: LocationCandidate | undefined;
+  excludeMenu: ExclusionCategoryId[] | undefined;
+  menu: MenuRecommendation | undefined;
+  restaurant: Restaurant | undefined;
+}
 export interface RoomStore {
   roomId: Id;
   version: number;
@@ -21,6 +36,7 @@ export interface RoomStore {
   restaurant?: RestaurantStore;
   menu?: MenuStore;
   excludeMenu?: ExcludeMenuStore;
+  final: FinalState;
 }
 
 export interface ExtendedParticipant extends Participant {
