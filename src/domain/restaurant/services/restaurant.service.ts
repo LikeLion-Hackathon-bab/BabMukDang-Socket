@@ -25,6 +25,10 @@ export class RestaurantService extends BaseService<RestaurantStore> {
         const finalState = this.roomStore.getFinalState(roomId);
         if (!finalState) return;
         finalState.restaurant = finalRestaurant;
+        eventEmitter.emit('final-state-response', {
+          roomId,
+          finalState,
+        });
       },
     );
     eventEmitter.on('request-initial-state', async ({ roomId, stage }) => {

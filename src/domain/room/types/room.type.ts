@@ -31,6 +31,7 @@ export interface RoomStore {
   updatedAt: number;
   stage: AnnouncementStage | InvitationStage;
   participants: Map<Id, ExtendedParticipant>;
+  timeout: NodeJS.Timeout | undefined;
   chat: ChatMessage[];
   location?: LocationStore;
   restaurant?: RestaurantStore;

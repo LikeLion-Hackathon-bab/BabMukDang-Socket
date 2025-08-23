@@ -28,6 +28,10 @@ export class MenuService extends BaseService<MenuStore> {
         const finalState = this.roomStore.getFinalState(roomId);
         if (!finalState) return;
         finalState.menu = finalMenu;
+        emitter.emit('final-state-response', {
+          roomId,
+          finalState,
+        });
       },
     );
     emitter.on(

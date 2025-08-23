@@ -11,6 +11,7 @@ import {
   InvitationStageMap,
 } from 'src/domain/common/types/stage';
 import { ReadyStateDto } from '../dto/request.dto';
+import { FinalState } from '../types/room.type';
 
 @Injectable()
 export class RoomHandlers {
@@ -18,6 +19,26 @@ export class RoomHandlers {
     private readonly logger: WsLogger,
     private readonly roomService: RoomStoreService,
   ) {}
+
+  handleFinalStateResponse(server: Server) {
+    const emitter = this.roomService.getEventEmitter();
+    emitter.on(
+      'final-state-response',
+      ({ roomId, finalState }: { roomId: string; finalState: FinalState }) => {
+        const stage = this.roomService.getStage(roomId);
+        const stageMap = {
+          location: 'location',
+          'exclude-menu': 'excludeMenu',
+          menu: 'menu',
+          restaurant: 'restaurant',
+        };
+        server.to(roomId).emit('final-state-response', {
+          roomId,
+          finalState: finalState[stageMap[stage]],
+        });
+      },
+    );
+  }
 
   handleReadyState(
     client: Socket,

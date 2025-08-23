@@ -66,6 +66,7 @@ export class AnnouncementGateway
     // pass scoped server so broadcasting stays within this namespace
     this.room.handleAutoProgressAnnouncement(this.server);
     this.room.handleInitialStateResponse(this.server);
+    this.room.handleFinalStateResponse(this.server);
     this.location.server = this.server;
     // this.chat.server = this.server;
     this.menu.server = this.server;
