@@ -30,6 +30,10 @@ export class LocationService extends BaseService<LocationStore> {
         const finalState = this.roomStore.getFinalState(roomId);
         if (!finalState) return;
         finalState.location = finalLocation;
+        emitter.emit('final-state-response', {
+          roomId,
+          finalState,
+        });
       },
     );
     emitter.on(

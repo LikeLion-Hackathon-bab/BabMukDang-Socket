@@ -24,6 +24,10 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
       const finalState = this.roomStore.getFinalState(roomId);
       if (!finalState) return;
       finalState.excludeMenu = finalExclusions;
+      emitter.emit('final-state-response', {
+        roomId,
+        finalState,
+      });
     });
     emitter.on(
       'request-initial-state',
