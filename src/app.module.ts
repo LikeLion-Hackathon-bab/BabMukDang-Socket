@@ -10,11 +10,13 @@ import { LoggerModule } from './domain/common/logger/logger.module';
 import { WsContextInterceptor } from './domain/common/logger/ws-context.interceptor';
 import { AnnouncementModule } from './namespace/announcement.module';
 import { InvitationModule } from './namespace/invitation.module';
+import { ImageUploadModule } from './domain/image-upload/image-upload.module';
 @Module({
   imports: [
     AnnouncementModule,
     InvitationModule,
     LoggerModule,
+    ImageUploadModule,
     ConfigModule.forRoot({ cache: true, isGlobal: true }),
     JwtModule.register({
       global: true,
