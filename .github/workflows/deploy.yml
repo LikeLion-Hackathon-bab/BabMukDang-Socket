@@ -19,6 +19,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          request_pty: true
           script_stop: true
           script: |
             set -e
@@ -27,27 +28,33 @@ jobs:
               exit 1
             fi
 
-            REPO_DIR="${{ secrets.EC2_PATH }}"
-            REPO_URL="${{ secrets.EC2_REPO_SSH }}" # e.g., git@github.com:owner/BabMukDang-Socket.git
+            # Elevate to root login shell and run all commands from there
+            sudo -i bash -lc '
+              set -e
+              REPO_DIR="${{ secrets.EC2_PATH }}"
+              REPO_URL="${{ secrets.EC2_REPO_SSH }}" # e.g., git@github.com:owner/BabMukDang-Socket.git
 
-            mkdir -p "$REPO_DIR"
-            cd "$REPO_DIR"
+              mkdir -p "$REPO_DIR"
+              cd "$REPO_DIR"
 
-            # First-time bootstrap if the repo is not present
-            if [ ! -d .git ]; then
-              if [ -z "$REPO_URL" ]; then
-                echo "Repository not found at $REPO_DIR and EC2_REPO_SSH is not set. Set EC2_REPO_SSH to SSH URL (e.g., git@github.com:owner/BabMukDang-Socket.git)." >&2
-                exit 1
+              # First-time bootstrap if the repo is not present
+              if [ ! -d .git ]; then
+                if [ -z "$REPO_URL" ]; then
+                  echo "Repository not found at $REPO_DIR and EC2_REPO_SSH is not set. Set EC2_REPO_SSH to SSH URL (e.g., git@github.com:owner/BabMukDang-Socket.git)." >&2
+                  exit 1
+                fi
+                mkdir -p ~/.ssh
+                ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+                git clone "$REPO_URL" .
               fi
-              git clone "$REPO_URL" .
-            fi
 
-            git fetch --all --prune
-            git checkout main
-            git reset --hard origin/main
-            # Ensure latest images and rebuild containers (supports both v1 and v2 compose)
-            if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
-            $DC pull || true
-            $DC up --build -d
-            # Optional cleanup (non-fatal)
-            docker system prune -f || true
+              git fetch --all --prune
+              git checkout main
+              git reset --hard origin/main
+              # Ensure latest images and rebuild containers (supports both v1 and v2 compose)
+              if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+              $DC pull || true
+              $DC up --build -d
+              # Optional cleanup (non-fatal)
+              docker system prune -f || true
+            '
