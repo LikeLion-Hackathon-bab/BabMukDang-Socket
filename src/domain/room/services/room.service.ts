@@ -33,6 +33,7 @@ export class RoomStoreService {
           menu: undefined,
           restaurant: undefined,
         },
+        timeout: undefined,
       };
 
       this.rooms.set(roomId, room);
@@ -176,6 +177,9 @@ export class RoomStoreService {
   ): void {
     const room = this.rooms.get(roomId);
     if (!room) return;
+    if (room.timeout) {
+      clearTimeout(room.timeout);
+    }
     const participant = room.participants.get(userId);
     if (!participant) return;
     participant.ready = isReady;
@@ -187,7 +191,7 @@ export class RoomStoreService {
         roomId,
         stage: room.stage,
       });
-      setTimeout(() => {
+      room.timeout = setTimeout(() => {
         const afterReadyCount = this.getParticipantReadyCount(roomId);
         if (afterReadyCount === room.participants.size) {
           this.eventEmitter.emit('ready-state-completed', {
