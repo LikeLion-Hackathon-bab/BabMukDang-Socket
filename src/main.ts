@@ -21,7 +21,7 @@ async function bootstrap() {
 
   // CORS 설정
   app.enableCors({
-    origin: true,
+    origin: ['https://bab-muk-dang-client.vercel.app', 'http://localhost:3001'],
     credentials: true,
   });
 
