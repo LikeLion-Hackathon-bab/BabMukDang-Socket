@@ -1,0 +1,4 @@
+13.125.49.103 {
+        tls internal
+        reverse_proxy localhost:3000
+}
