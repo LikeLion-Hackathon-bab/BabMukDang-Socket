@@ -1,5 +1,4 @@
 import { IsString, IsNotEmpty, IsNumber } from 'class-validator';
-import { BaseClientDto } from 'src/promise/dto/client-to-server.dto';
 import { LocationCandidate } from '../types/location.type';
 export class LocationCandidateDto implements LocationCandidate {
   @IsString()
@@ -20,7 +19,7 @@ export class LocationCandidateDto implements LocationCandidate {
   address: string;
 }
 
-export class CandidateIdDto extends BaseClientDto {
+export class CandidateIdDto {
   @IsString()
   @IsNotEmpty()
   candidateId: string;
