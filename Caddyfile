@@ -1,4 +1,4 @@
-13.125.49.103 {
+api.babmuckdang.site {
     tls internal
     reverse_proxy server:3000
 }
