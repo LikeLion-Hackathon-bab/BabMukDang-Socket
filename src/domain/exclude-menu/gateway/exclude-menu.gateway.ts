@@ -20,14 +20,10 @@ export class ExcludeMenuHandlers {
     roomId: string,
     userInfo: UserInfo,
   ) {
-    const { categoryId } = payload;
-    this.excludeMenuService.addUserExclusions(
-      roomId,
-      userInfo.userId,
-      categoryId,
-    );
+    const menu = payload;
+    this.excludeMenuService.addUserExclusions(roomId, userInfo.userId, menu);
     this.logger.log(
-      `User ${userInfo.userId} excluded menu ${categoryId} in room ${roomId}`,
+      `User ${userInfo.userId} excluded menu ${menu.label} in room ${roomId}`,
     );
     const responseDto =
       this.excludeMenuService.getAllUserExclusionsSerialized(roomId);
