@@ -140,10 +140,13 @@ export class AnnouncementGateway
           stage: this.roomService.getStage(roomId),
           updatedAt: Date.now(),
         });
-        client.emit(
-          'initial-state-response',
-          Array.from(this.roomService.getParticipants(roomId).values()),
-        );
+        client.emit('initial-state-response', {
+          participants: Array.from(
+            this.roomService.getParticipants(roomId).values(),
+          ),
+          locationInitial: this.roomService.getRoom(roomId)?.locationInitial,
+          meetingAt: this.roomService.getRoom(roomId)?.meetingAt,
+        });
         client.emit(
           'final-state-response',
           this.roomService.getFinalState(roomId),

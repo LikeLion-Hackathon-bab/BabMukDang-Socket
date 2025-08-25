@@ -31,6 +31,8 @@ export interface RoomStore {
   recentMenu: Map<Id, MenuRecommendation[]>; // userId -> MenuRecommendation[]
   timeout: NodeJS.Timeout | undefined;
   chat: ChatMessage[];
+  meetingAt?: string;
+  locationInitial?: string;
   location?: LocationStore;
   restaurant?: RestaurantStore;
   menu?: MenuStore;

@@ -340,6 +340,8 @@ export class RoomStoreService {
       room = this.ensureRoom(roomId);
       this.rooms.set(roomId, room);
     }
+    room.locationInitial = dto.location;
+    room.meetingAt = dto.meetingAt;
     // 참가자 세팅 (announcement: userName)
     room.participants = new Map(
       dto.participants.map((p) => [

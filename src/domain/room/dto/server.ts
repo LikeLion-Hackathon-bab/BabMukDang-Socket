@@ -6,6 +6,12 @@ export class AnnouncementRequestDto {
   @IsString()
   @IsNotEmpty()
   announcementId: string;
+  @IsString()
+  @IsNotEmpty()
+  location: string;
+  @IsString()
+  @IsNotEmpty()
+  meetingAt: string;
   @IsArray()
   @IsNotEmpty()
   participants: [
