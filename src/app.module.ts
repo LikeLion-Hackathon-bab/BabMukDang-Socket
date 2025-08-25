@@ -11,12 +11,15 @@ import { WsContextInterceptor } from './domain/common/logger/ws-context.intercep
 import { AnnouncementModule } from './namespace/announcement.module';
 import { InvitationModule } from './namespace/invitation.module';
 import { ImageUploadModule } from './domain/image-upload/image-upload.module';
+import { HttpModule } from '@nestjs/axios';
+import { ServerService } from './domain/room/services/server.service';
 @Module({
   imports: [
     AnnouncementModule,
     InvitationModule,
     LoggerModule,
     ImageUploadModule,
+    HttpModule,
     ConfigModule.forRoot({ cache: true, isGlobal: true }),
     JwtModule.register({
       global: true,
@@ -27,6 +30,7 @@ import { ImageUploadModule } from './domain/image-upload/image-upload.module';
   controllers: [AppController],
   providers: [
     AppService,
+    ServerService,
     { provide: APP_INTERCEPTOR, useClass: WsContextInterceptor },
     { provide: APP_INTERCEPTOR, useClass: WsErrorInterceptor },
     { provide: APP_GUARD, useClass: WsRoomRequiredGuard },

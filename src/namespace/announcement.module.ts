@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { AnnouncementGateway } from './announcement.gateway';
 import { JwtService } from '@nestjs/jwt';
 // Removed domain module imports; using namespaced providers instead
-import { RoomStoreService } from 'src/domain/room';
+import { RoomStoreService, ServerService } from 'src/domain/room';
 import { RoomHandlers } from 'src/domain/room';
 import { ChatHandlers } from 'src/domain/chat';
 import { RestaurantHandlers } from 'src/domain/restaurant';
@@ -22,6 +22,7 @@ import {
   AnnouncementMenuHandlers,
 } from './announcement.handlers';
 import { RestaurantService } from 'src/domain/restaurant';
+import { HttpModule } from '@nestjs/axios';
 // import { WsContextInterceptor } from 'src/domain/common/logger/ws-context.interceptor';
 @Module({
   providers: [
@@ -57,8 +58,9 @@ import { RestaurantService } from 'src/domain/restaurant';
       useFactory: (store: RoomStoreService) => new RestaurantService(store),
       inject: [ANNOUNCEMENT_ROOM_STORE],
     },
+    ServerService,
   ],
-  imports: [],
-  exports: [AnnouncementGateway],
+  imports: [HttpModule],
+  exports: [AnnouncementGateway, ANNOUNCEMENT_ROOM_STORE],
 })
 export class AnnouncementModule {}

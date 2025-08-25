@@ -414,14 +414,15 @@ export class MenuService extends BaseService<MenuStore> {
   async getMenuRecommendation(roomId: string): Promise<MenuRecommendation[]> {
     const participants = this.roomStore.getParticipants(roomId);
     if (participants.size === 0) return [];
-    const excludeMenu = this.roomStore.getFinalState(roomId)?.excludeMenu;
+    const excludeMenus = this.roomStore.getFinalState(roomId)?.excludeMenu;
+    console.log('excludeMenus', excludeMenus);
     const response = (await fetch(
       `${process.env.FOOD_RECOMMEND_SERVER}/v1/recommend`,
       {
         method: 'POST',
         body: JSON.stringify({
           user_ids: Array.from(participants.keys()),
-          exclude_menu: excludeMenu,
+          exclude_menus: excludeMenus,
           top_k: 6,
         }),
         headers: {

@@ -9,36 +9,50 @@ import {
   AnnouncementStage,
   InvitationStage,
 } from 'src/domain/common/types/stage';
+import { ServerService } from './server.service';
+import {
+  AnnouncementRequestDto,
+  InvitationRequestDto,
+} from 'src/domain/room/dto/server';
 @Injectable()
 export class RoomStoreService {
   private readonly rooms: Map<Id, RoomStore> = new Map();
   private readonly eventEmitter: EventEmitter = new EventEmitter();
-  constructor(private readonly logger: WsLogger) {}
+  isInvitation: boolean;
+  constructor(
+    private readonly logger: WsLogger,
+    private readonly serverService: ServerService,
+  ) {}
   /**
    * 방 생성 또는 기존 방 반환
    */
   ensureRoom(roomId: string): RoomStore {
     let room = this.rooms.get(roomId);
-    if (!room) {
-      room = {
-        roomId,
-        version: 1,
-        updatedAt: Date.now(),
-        stage: 'waiting',
-        participants: new Map(),
-        chat: [],
-        final: {
-          location: undefined,
-          excludeMenu: undefined,
-          menu: undefined,
-          restaurant: undefined,
-        },
-        timeout: undefined,
-      };
 
-      this.rooms.set(roomId, room);
-      this.logger.log(`Created new room: ${roomId}, stage: ${room.stage}`);
-    }
+    room = {
+      roomId,
+      version: 1,
+      updatedAt: Date.now(),
+      stage: 'waiting',
+      participants: new Map<Id, ExtendedParticipant>(),
+      recentMenu: new Map(),
+      chat: [],
+      final: {
+        location: undefined,
+        excludeMenu: undefined,
+        menu: undefined,
+        restaurant: undefined,
+      },
+      timeout: undefined,
+    };
+
+    this.rooms.set(roomId, room);
+    this.logger.log(
+      `Created new room: ${roomId}, stage: ${room.stage} ${JSON.stringify(
+        Array.from(room.recentMenu.entries()),
+      )}`,
+    );
+
     return room;
   }
 
@@ -68,12 +82,36 @@ export class RoomStoreService {
   }
 
   /**
+   * 참여자 검증
+   */
+  canJoin(roomId: string, userId: string): boolean {
+    const room = this.rooms.get(roomId);
+    if (!room) return false;
+    return room.participants.has(userId);
+  }
+
+  /**
    * 참여자 추가
    */
   addParticipant(roomId: string, userId: string, username?: string): void {
-    const room = this.ensureRoom(roomId);
-    const participant: ExtendedParticipant = { userId, username, ready: false };
-    room.participants.set(userId, participant);
+    let room = this.rooms.get(roomId);
+    if (!room) {
+      room = this.ensureRoom(roomId);
+      this.rooms.set(roomId, room);
+    }
+
+    const participant: ExtendedParticipant = {
+      userId,
+      username: username ?? '',
+      userProfileImageURL: '',
+      ready: false,
+    };
+    const existingParticipant = room.participants.get(userId);
+    if (existingParticipant) {
+      return;
+    } else {
+      room.participants.set(userId, participant);
+    }
     this.bump(room);
     this.logger.log(`User ${username || userId} added to room ${roomId}`);
   }
@@ -134,14 +172,16 @@ export class RoomStoreService {
    */
   getStage(roomId: string): AnnouncementStage | InvitationStage {
     const room = this.rooms.get(roomId);
-    return room!.stage;
+    if (!room) return 'waiting';
+    return room.stage;
   }
 
   getStageState(roomId: string): any {
     const room = this.rooms.get(roomId);
+    if (!room) return;
     this.eventEmitter.emit('request-initial-state', {
       roomId,
-      stage: room!.stage,
+      stage: room.stage,
     });
   }
   /**
@@ -289,5 +329,60 @@ export class RoomStoreService {
    */
   getEventEmitter(): EventEmitter {
     return this.eventEmitter;
+  }
+
+  /**
+   * 외부 API로부터 전달받은 Announcement 초기 데이터로 룸 시드
+   */
+  seedFromAnnouncement(roomId: string, dto: AnnouncementRequestDto): void {
+    let room = this.rooms.get(roomId);
+    if (!room) {
+      room = this.ensureRoom(roomId);
+      this.rooms.set(roomId, room);
+    }
+    room.locationInitial = dto.location;
+    room.meetingAt = dto.meetingAt;
+    // 참가자 세팅 (announcement: userName)
+    room.participants = new Map(
+      dto.participants.map((p) => [
+        p.userId,
+        {
+          userId: p.userId,
+          username: p.userName,
+          userProfileImageURL: p.userProfileImageURL ?? '',
+          ready: false,
+        },
+      ]),
+    );
+    // 최근 메뉴 세팅
+    room.recentMenu = new Map(dto.recentMenu.map((r) => [r.userId, r.menu]));
+    this.bump(room);
+    console.log(room);
+  }
+
+  /**
+   * 외부 API로부터 전달받은 Invitation 초기 데이터로 룸 시드
+   */
+  seedFromInvitation(roomId: string, dto: InvitationRequestDto): void {
+    let room = this.rooms.get(roomId);
+    if (!room) {
+      room = this.ensureRoom(roomId);
+      this.rooms.set(roomId, room);
+    }
+    // 참가자 세팅 (invitation: username)
+    room.participants = new Map(
+      dto.participants.map((p) => [
+        p.userId,
+        {
+          userId: p.userId,
+          username: p.username,
+          userProfileImageURL: p.userProfileImageURL ?? '',
+          ready: false,
+        },
+      ]),
+    );
+    // 최근 메뉴 세팅
+    room.recentMenu = new Map(dto.recentMenu.map((r) => [r.userId, r.menu]));
+    this.bump(room);
   }
 }

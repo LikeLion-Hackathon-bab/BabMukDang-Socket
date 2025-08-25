@@ -1,10 +1,10 @@
 import { IsArray, ValidateNested } from 'class-validator';
-import { ExclusionCategoryId } from '../types/exclude-menu.types';
 import { Type } from 'class-transformer';
+import type { MenuRecommendation } from 'src/domain/menu/types/menu.type';
 
-export class ExclusionCategoryResponseDto {
+export class ExclusionMenuResponseDto {
   @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => String)
-  availableCategories: ExclusionCategoryId[];
+  // @ValidateNested({ each: true })
+  // @Type(() =>  {}MenuRecommendation)
+  availableMenus: MenuRecommendation[];
 }

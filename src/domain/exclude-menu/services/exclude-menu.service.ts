@@ -1,15 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { BaseService } from '../../common/base.service';
-import {
-  UserMenuCategory,
-  ExcludeMenuStore,
-  ExclusionCategoryId,
-} from '../types/exclude-menu.types';
+import { ExcludeMenuStore, MenuCode } from '../types/exclude-menu.types';
 import {
   AnnouncementStage,
   InvitationStage,
 } from 'src/domain/common/types/stage';
 import { RoomStoreService } from 'src/domain/room/services/room.service';
+import { MenuRecommendation } from 'src/domain/menu/types/menu.type';
+import { Id } from 'src/domain/common/types';
 
 @Injectable()
 export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
@@ -34,10 +32,16 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
       ({ roomId, stage }: { roomId: string; stage: InvitationStage }) => {
         if (stage !== 'exclude-menu') return;
         this.logger.log(`Initialized exclude-menu state for room ${roomId}`);
+        const recentMenu: Map<string, MenuRecommendation[]> =
+          this.roomStore.getRoom(roomId)?.recentMenu ?? new Map();
+        const initialState = Array.from(recentMenu.keys()).map((userId) => ({
+          userId,
+          menuList: recentMenu.get(userId),
+        }));
         emitter.emit('initial-state-response', {
           roomId,
           stage: 'exclude-menu',
-          initialState: this.getStepState(roomId)?.initialUserCategories,
+          initialState,
         });
       },
     );
@@ -75,7 +79,7 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
 
     // Step 3 상태가 없으면 초기화
     if (!room.excludeMenu) {
-      room.excludeMenu = this.createInitialState(roomId);
+      room.excludeMenu = this.createInitialState();
     }
 
     // 상태 업데이트
@@ -124,7 +128,7 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
       this.throwError('Room not found', roomId);
     }
 
-    const initialState = this.createInitialState(roomId);
+    const initialState = this.createInitialState();
     room.excludeMenu = initialState;
 
     this.logger.log(`Initialized exclude-menu state for room ${roomId}`);
@@ -137,7 +141,7 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
   resetStep(roomId: string): void {
     const room = this.roomStore.getRoom(roomId);
     if (room && room.excludeMenu) {
-      room.excludeMenu = this.createInitialState(roomId);
+      room.excludeMenu = this.createInitialState();
       this.bumpVersion(roomId);
       this.logger.log(`Reset exclude-menu state for room ${roomId}`);
     }
@@ -225,15 +229,9 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
   /**
    * 초기 상태를 생성합니다
    */
-  private createInitialState(roomId: string): ExcludeMenuStore {
-    const participants = this.getParticipants(roomId);
-    const initialUserCategories = Array.from(participants).map(([userId]) => ({
-      userId,
-      categoryIds: ['김밥', '순두부찌개', '김밥', '순두부찌개'],
-    }));
+  private createInitialState(): ExcludeMenuStore {
     return {
       userExclusions: new Map(),
-      initialUserCategories,
       maxExclusionsPerUser: 5,
     };
   }
@@ -243,8 +241,8 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
    */
   addUserExclusions(
     roomId: string,
-    userId: string,
-    itemId: ExclusionCategoryId,
+    userId: Id,
+    itemId: MenuRecommendation,
   ): boolean {
     // TODO: 제외 카테고리 검증 로직 추가
     // if (
@@ -255,16 +253,16 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
     // ) {
     //   return false;
     // }
-    const userExclusionsSet = this.getUserExclusions(roomId, userId);
+    const userExclusions = this.getUserExclusions(roomId, userId);
 
-    if (userExclusionsSet.has(itemId)) {
-      userExclusionsSet.delete(itemId);
+    if (userExclusions.has(itemId.code)) {
+      userExclusions.delete(itemId.code);
     } else {
-      userExclusionsSet.add(itemId);
+      userExclusions.set(itemId.code, itemId);
     }
 
     this.logger.log(
-      `Added exclusion for user ${userId} in room ${roomId}: ${itemId}`,
+      `Added exclusion for user ${userId} in room ${roomId}: ${itemId.label}`,
     );
     return true;
   }
@@ -274,32 +272,38 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
    */
   removeUserExclusions(
     roomId: string,
-    userId: string,
-    exclusion: ExclusionCategoryId,
+    userId: Id,
+    exclusion: MenuRecommendation,
   ): boolean {
-    const userExclusionsSet = this.getUserExclusions(roomId, userId);
-    userExclusionsSet.delete(exclusion);
+    const userExclusions = this.getUserExclusions(roomId, userId);
+    userExclusions.delete(exclusion.code);
 
     this.logger.log(
-      `Removed exclusion for user ${userId} in room ${roomId}: ${exclusion}`,
+      `Removed exclusion for user ${userId} in room ${roomId}: ${exclusion.label}`,
     );
     return true;
   }
   /**
    * 사용자의 메뉴 제외 설정을 가져옵니다
    */
-  getUserExclusions(roomId: string, userId: string): Set<ExclusionCategoryId> {
+  getUserExclusions(
+    roomId: string,
+    userId: Id,
+  ): Map<MenuCode, MenuRecommendation> {
     const state = this.getStepState(roomId);
-    if (!state) return new Set();
+    if (!state) return new Map();
 
     let exclusions = state.userExclusions.get(userId);
     if (!exclusions) {
-      exclusions = state.userExclusions.set(userId, new Set()).get(userId)!;
+      exclusions = new Map<MenuCode, MenuRecommendation>();
+      state.userExclusions.set(userId, exclusions);
     }
     return exclusions;
   }
 
-  getAllUserExclusions(roomId: string): Map<string, Set<ExclusionCategoryId>> {
+  getAllUserExclusions(
+    roomId: string,
+  ): Map<Id, Map<MenuCode, MenuRecommendation>> {
     const state = this.getStepState(roomId);
     if (!state) return new Map();
 
@@ -308,7 +312,7 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
 
   getAllUserExclusionsSerialized(roomId: string): {
     userId: string;
-    exclusions: ExclusionCategoryId[];
+    exclusions: MenuRecommendation[];
   }[] {
     const state = this.getStepState(roomId);
     if (!state) return [];
@@ -316,20 +320,12 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
     const serializedUserExclusions = Array.from(userExclusions.entries()).map(
       ([userId, exclusions]) => ({
         userId,
-        exclusions: Array.from(exclusions),
+        exclusions: Array.from(exclusions.entries()).map(
+          ([code, menu]) => menu,
+        ),
       }),
     );
     return serializedUserExclusions;
-  }
-
-  /**
-   * 사용 가능한 메뉴 카테고리를 가져옵니다
-   */
-  getExclusionCategories(roomId: string): UserMenuCategory[] {
-    const state = this.getStepState(roomId);
-    if (!state) return [];
-
-    return [...state.initialUserCategories];
   }
 
   /**
@@ -380,20 +376,20 @@ export class ExcludeMenuService extends BaseService<ExcludeMenuStore> {
   //   return true;
   // }
 
-  calculateFinalExclusions(roomId: string): ExclusionCategoryId[] {
+  calculateFinalExclusions(roomId: string): MenuRecommendation[] {
     const state = this.getStepState(roomId);
     if (!state) return [];
     const participants = this.getParticipants(roomId);
     if (!participants) return [];
-    const finalExclusions = new Set<ExclusionCategoryId>();
+    const finalExclusions = new Map<MenuCode, MenuRecommendation>();
     for (const [userId] of participants) {
       const userExclusions = state.userExclusions.get(userId);
       if (!userExclusions) continue;
-      for (const exclusion of userExclusions) {
-        finalExclusions.add(exclusion);
+      for (const [code, exclusion] of userExclusions.entries()) {
+        finalExclusions.set(code, exclusion);
       }
     }
-    return Array.from(finalExclusions);
+    return Array.from(finalExclusions.values());
   }
 
   /**

@@ -55,7 +55,9 @@ export class AnnouncementGateway
     private readonly restaurant: RestaurantHandlers,
     private readonly excludeMenu: ExcludeMenuHandlers,
     private readonly room: RoomHandlers,
-  ) {}
+  ) {
+    this.roomService.isInvitation = false;
+  }
 
   @WebSocketServer()
   server: Server;
@@ -88,11 +90,7 @@ export class AnnouncementGateway
         const rawRoomId = socket.handshake.query.roomId as string | undefined;
         if (!rawRoomId) return next(new Error('roomId is required'));
 
-        // 3) (선택) 방 멤버십/권한 검증
-        // const ok = await this.roomService.canJoin(roomId, payload.sub);
-        // if (!ok) return next(new Error('Forbidden: not a room member'));
-
-        // 4) socket.data에 “표준 위치”로 저장 (타이핑된 접근)
+        // 3) socket.data에 저장
         const data = socket.data as {
           userId?: string;
           username?: string;
@@ -100,8 +98,12 @@ export class AnnouncementGateway
         };
         data.userId = userInfo.sub;
         data.username = userInfo.username;
-        // Namespace-scoped room id to isolate store/state between gateways
         const roomId = `announcement:${rawRoomId}`;
+
+        // 4) 방 참여 검증, 방에 있는 인원인지
+        const ok = this.roomService.canJoin(roomId, data.userId);
+        if (!ok) return next(new Error('Forbidden: not a room member'));
+
         data.roomId = roomId;
 
         // 기존 연결 정리
@@ -126,11 +128,11 @@ export class AnnouncementGateway
       const { userInfo, roomId } = getWsCtx(client);
       // 사용자를 방에 추가
       if (userInfo && userInfo.userId && roomId) {
-        this.roomService.addParticipant(
-          roomId,
-          userInfo.userId,
-          userInfo.username,
-        );
+        // this.roomService.addParticipant(
+        //   roomId,
+        //   userInfo.userId,
+        //   userInfo.username,
+        // );
         // 채팅 메시지 전송
         const chatMessages = this.roomService.getChatMessages(roomId);
         client.emit('chat-messages', chatMessages);
@@ -138,16 +140,25 @@ export class AnnouncementGateway
           stage: this.roomService.getStage(roomId),
           updatedAt: Date.now(),
         });
+        client.emit('initial-state-response', {
+          participants: Array.from(
+            this.roomService.getParticipants(roomId).values(),
+          ),
+          locationInitial: this.roomService.getRoom(roomId)?.locationInitial,
+          meetingAt: this.roomService.getRoom(roomId)?.meetingAt,
+        });
+        client.emit(
+          'final-state-response',
+          this.roomService.getFinalState(roomId),
+        );
         // 초기 상태 호출
         this.roomService.getStageState(roomId);
 
         // 방 참여 이벤트 발생
-        this.server
-          .to(roomId)
-          .emit(
-            'join-room',
-            Array.from(this.roomService.getParticipants(roomId).values()),
-          );
+        client.broadcast.emit(
+          'join-room',
+          Array.from(this.roomService.getParticipants(roomId).values()),
+        );
         const bound = this.logger.bind({
           ns: client.nsp?.name,
           event: 'connection',
@@ -182,7 +193,6 @@ export class AnnouncementGateway
     });
     bound.log(`Client disconnected: ${client.id}`);
     if (userInfo.userId && roomId) {
-      this.roomService.removeParticipant(roomId, userInfo.userId);
       this.server
         .to(roomId)
         .emit(

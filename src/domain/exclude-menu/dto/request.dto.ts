@@ -3,7 +3,10 @@ import { IsNotEmpty, IsString } from 'class-validator';
 export class ExcludeMenuDto {
   @IsString()
   @IsNotEmpty()
-  categoryId: string;
+  code: string;
+  @IsString()
+  @IsNotEmpty()
+  label: string;
 }
 
 export class ExcludeMenuAddDto extends ExcludeMenuDto {}

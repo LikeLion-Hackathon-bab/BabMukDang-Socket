@@ -34,7 +34,7 @@ export class RoomHandlers {
         };
         server.to(roomId).emit('final-state-response', {
           roomId,
-          finalState: finalState[stageMap[stage]],
+          finalState,
         });
       },
     );
@@ -64,12 +64,12 @@ export class RoomHandlers {
     });
 
     // 성공 응답
-    client.emit('ready-state-success', {
-      roomId,
-      userId: userInfo.userId,
-      isReady,
-      timestamp: Date.now(),
-    });
+    // client.emit('ready-state-success', {
+    //   roomId,
+    //   userId: userInfo.userId,
+    //   isReady,
+    //   timestamp: Date.now(),
+    // });
   }
   handleInitialStateResponse(server: Server) {
     const emitter = this.roomService.getEventEmitter();

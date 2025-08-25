@@ -55,7 +55,9 @@ export class InvitationGateway
     private readonly restaurant: RestaurantHandlers,
     private readonly excludeMenu: ExcludeMenuHandlers,
     private readonly room: RoomHandlers,
-  ) {}
+  ) {
+    this.roomService.isInvitation = true;
+  }
 
   @WebSocketServer()
   server: Server;
