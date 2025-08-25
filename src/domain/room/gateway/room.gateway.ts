@@ -137,22 +137,19 @@ export class RoomHandlers {
             this.logger.log(`Room ${roomId} already at final stage ${current}`);
             console.log(this.roomService.getFinalState(roomId));
             // todo: 이벤트 방송, 다 나가면 룸 삭제
+            const locationName =
+              this.roomService.getFinalState(roomId)?.location?.placeName ?? '';
+            const meetingAt = this.roomService.getRoom(roomId)?.meetingAt;
+            const meetingDate = meetingAt
+              ? new Date(meetingAt).toISOString().split('T')[0]
+              : '';
+            const meetingTime = meetingAt
+              ? new Date(meetingAt).toISOString().split('T')[1]?.slice(0, 5)
+              : '';
             void this.serverService.postAnnouncementResult(roomId, {
-              location:
-                this.roomService.getFinalState(roomId)?.location?.placeName ??
-                '',
-              meetingDate: (() => {
-                const meetingAt = this.roomService.getRoom(roomId)?.meetingAt;
-                return meetingAt
-                  ? new Date(meetingAt).toISOString().split('T')[0]
-                  : '';
-              })(),
-              meetingTime: (() => {
-                const meetingAt = this.roomService.getRoom(roomId)?.meetingAt;
-                return meetingAt
-                  ? new Date(meetingAt).toISOString().split('T')[1]?.slice(0, 5)
-                  : '';
-              })(),
+              location: locationName,
+              meetingDate,
+              meetingTime,
               author: {
                 name:
                   this.roomService.getRoom(roomId)?.participants?.[0]?.name ??
