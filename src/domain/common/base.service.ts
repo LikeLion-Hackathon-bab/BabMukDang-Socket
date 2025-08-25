@@ -52,7 +52,7 @@ export abstract class BaseService<T> {
   abstract validateBusinessRules(
     roomId: string,
     action: string,
-    payload: any,
+    payload: unknown,
   ): boolean;
 
   /**

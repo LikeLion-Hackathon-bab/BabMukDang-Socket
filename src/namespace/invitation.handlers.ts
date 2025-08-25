@@ -13,6 +13,7 @@ import { ExcludeMenuService } from 'src/domain/exclude-menu';
 import { RestaurantService } from 'src/domain/restaurant';
 import { DateHandlers, DateService } from 'src/domain/date';
 import { TimeHandlers, TimeService } from 'src/domain/time';
+import { ServerService } from 'src/domain/room';
 
 export const INVITATION_ROOM_STORE = 'INVITATION_ROOM_STORE';
 
@@ -21,8 +22,9 @@ export class InvitationRoomHandlers extends RoomHandlers {
   constructor(
     logger: WsLogger,
     @Inject(INVITATION_ROOM_STORE) roomService: RoomStoreService,
+    private readonly serverService: ServerService,
   ) {
-    super(logger, roomService);
+    super(logger, roomService, serverService);
   }
 }
 
