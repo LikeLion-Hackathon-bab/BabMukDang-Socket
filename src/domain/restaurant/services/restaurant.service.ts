@@ -140,8 +140,9 @@ export class RestaurantService extends BaseService<RestaurantStore> {
     const headers = {
       Authorization: `KakaoAK ${process.env.KAKAO_REST_KEY}`,
     };
+
     const query: any = {
-      query: menuLabel,
+      query: menuLabel || '',
       category_group_code: 'FD6',
       radius: 10000,
       sort: 'accuracy',
