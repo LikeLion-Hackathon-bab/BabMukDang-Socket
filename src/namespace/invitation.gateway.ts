@@ -18,6 +18,8 @@ import { MenuHandlers } from 'src/domain/menu';
 import { RestaurantHandlers } from 'src/domain/restaurant';
 import { ExcludeMenuHandlers } from 'src/domain/exclude-menu';
 import { RoomHandlers } from 'src/domain/room';
+import { DateHandlers } from 'src/domain/date';
+import { TimeHandlers } from 'src/domain/time';
 import {
   ConnectedSocket,
   MessageBody,
@@ -55,6 +57,8 @@ export class InvitationGateway
     private readonly restaurant: RestaurantHandlers,
     private readonly excludeMenu: ExcludeMenuHandlers,
     private readonly room: RoomHandlers,
+    private readonly date: DateHandlers,
+    private readonly time: TimeHandlers,
   ) {
     this.roomService.isInvitation = true;
   }
@@ -74,6 +78,8 @@ export class InvitationGateway
     this.menu.server = this.server;
     this.restaurant.server = this.server;
     this.excludeMenu.server = this.server;
+    this.date.server = this.server;
+    this.time.server = this.server;
     // RoomHandlers does not hold a global server reference anymore
 
     server.use((socket: Socket, next) => {
@@ -103,8 +109,12 @@ export class InvitationGateway
         data.username = userInfo.username;
         // Namespace-scoped room id to isolate store/state between gateways
         const roomId = `invitation:${rawRoomId}`;
-        data.roomId = roomId;
 
+        // 4) 방 참여 검증, 방에 있는 인원인지
+        const ok = this.roomService.canJoin(roomId, data.userId);
+        console.log(ok, data.userId);
+        if (!ok) return next(new Error('Forbidden: not a room member'));
+        data.roomId = roomId;
         // 기존 연결 정리
         // this.roomService.removeParticipant(socket.data.roomId, socket.data.userId);
 
@@ -128,17 +138,17 @@ export class InvitationGateway
 
       // 사용자를 방에 추가
       if (userInfo && userInfo.userId && roomId) {
-        this.roomService.addParticipant(
-          roomId,
-          userInfo.userId,
-          userInfo.username,
-        );
         // 채팅 메시지 전송
         const chatMessages = this.roomService.getChatMessages(roomId);
         client.emit('chat-messages', chatMessages);
         client.emit('stage-changed', {
           stage: this.roomService.getStage(roomId),
           updatedAt: Date.now(),
+        });
+        client.emit('initial-state-response', {
+          participants: Array.from(
+            this.roomService.getParticipants(roomId).values(),
+          ),
         });
         this.roomService.getStageState(roomId);
         // 방 참여 이벤트 발생
@@ -182,7 +192,6 @@ export class InvitationGateway
     });
     bound.log(`Client disconnected: ${client.id}`);
     if (userInfo.userId && roomId) {
-      this.roomService.removeParticipant(roomId, userInfo.userId);
       this.server
         .to(roomId)
         .emit(
@@ -203,6 +212,27 @@ export class InvitationGateway
   }
 
   // ===== Event routing to domain handlers =====
+  // 날짜 선택
+  @SubscribeMessage('pick-dates')
+  onPickDates(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { dates: string[] },
+    @WsRoom() roomId: string,
+    @WsUser() userInfo: UserInfo,
+  ) {
+    this.date.handlePickDates(client, payload, roomId, userInfo);
+  }
+
+  // 시간 선택 (ranges)
+  @SubscribeMessage('pick-times')
+  onPickTimes(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { times: string[] },
+    @WsRoom() roomId: string,
+    @WsUser() userInfo: UserInfo,
+  ) {
+    this.time.handlePickTimes(client, payload, roomId, userInfo);
+  }
   @SubscribeMessage('chat-message')
   onChatMessage(
     @ConnectedSocket() client: Socket,

@@ -12,6 +12,8 @@ import { LocationService } from 'src/domain/location';
 import { MenuService } from 'src/domain/menu';
 import { ExcludeMenuService } from 'src/domain/exclude-menu';
 import { ExcludeMenuHandlers } from 'src/domain/exclude-menu';
+import { DateHandlers, DateService } from 'src/domain/date';
+import { TimeHandlers, TimeService } from 'src/domain/time';
 import {
   INVITATION_ROOM_STORE,
   InvitationChatHandlers,
@@ -20,6 +22,8 @@ import {
   InvitationRoomHandlers,
   InvitationLocationHandlers,
   InvitationMenuHandlers,
+  InvitationDateHandlers,
+  InvitationTimeHandlers,
 } from './invitation.handlers';
 import { RestaurantService } from 'src/domain/restaurant';
 import { HttpModule } from '@nestjs/axios';
@@ -35,6 +39,8 @@ import { HttpModule } from '@nestjs/axios';
     { provide: LocationHandlers, useClass: InvitationLocationHandlers },
     { provide: MenuHandlers, useClass: InvitationMenuHandlers },
     { provide: ExcludeMenuHandlers, useClass: InvitationExcludeMenuHandlers },
+    { provide: DateHandlers, useClass: InvitationDateHandlers },
+    { provide: TimeHandlers, useClass: InvitationTimeHandlers },
     // namespace-bound domain services
     {
       provide: LocationService,
@@ -49,6 +55,16 @@ import { HttpModule } from '@nestjs/axios';
     {
       provide: ExcludeMenuService,
       useFactory: (store: RoomStoreService) => new ExcludeMenuService(store),
+      inject: [INVITATION_ROOM_STORE],
+    },
+    {
+      provide: DateService,
+      useFactory: (store: RoomStoreService) => new DateService(store),
+      inject: [INVITATION_ROOM_STORE],
+    },
+    {
+      provide: TimeService,
+      useFactory: (store: RoomStoreService) => new TimeService(store),
       inject: [INVITATION_ROOM_STORE],
     },
     {

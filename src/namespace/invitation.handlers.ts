@@ -11,6 +11,8 @@ import { LocationService } from 'src/domain/location';
 import { MenuService } from 'src/domain/menu';
 import { ExcludeMenuService } from 'src/domain/exclude-menu';
 import { RestaurantService } from 'src/domain/restaurant';
+import { DateHandlers, DateService } from 'src/domain/date';
+import { TimeHandlers, TimeService } from 'src/domain/time';
 
 export const INVITATION_ROOM_STORE = 'INVITATION_ROOM_STORE';
 
@@ -71,5 +73,25 @@ export class InvitationExcludeMenuHandlers extends ExcludeMenuHandlers {
     private readonly excludeMenuSvc: ExcludeMenuService,
   ) {
     super(logger, excludeMenuSvc);
+  }
+}
+
+@Injectable()
+export class InvitationDateHandlers extends DateHandlers {
+  constructor(
+    logger: WsLogger,
+    private readonly dateSvc: DateService,
+  ) {
+    super(logger, dateSvc);
+  }
+}
+
+@Injectable()
+export class InvitationTimeHandlers extends TimeHandlers {
+  constructor(
+    logger: WsLogger,
+    private readonly timeSvc: TimeService,
+  ) {
+    super(logger, timeSvc);
   }
 }
