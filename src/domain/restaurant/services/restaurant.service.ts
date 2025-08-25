@@ -72,7 +72,7 @@ export class RestaurantService extends BaseService<RestaurantStore> {
       this.throwError('Room is not in restaurant stage', roomId);
     }
     if (!room.restaurant) {
-      room.restaurant = await this.createInitialState();
+      room.restaurant = await this.createInitialState(roomId);
     }
     updateFn(room.restaurant);
     this.roomStore.bump(room);
@@ -83,13 +83,13 @@ export class RestaurantService extends BaseService<RestaurantStore> {
     if (!room) {
       this.throwError('Room not found', roomId);
     }
-    room.restaurant = await this.createInitialState();
+    room.restaurant = await this.createInitialState(roomId);
     return room.restaurant;
   }
   async resetStep(roomId: string): Promise<void> {
     const room = this.roomStore.getRoom(roomId);
     if (room && room.restaurant) {
-      room.restaurant = await this.createInitialState();
+      room.restaurant = await this.createInitialState(roomId);
       this.roomStore.bump(room);
       this.logger.log(`Reset restaurant state for room ${roomId}`);
     }
@@ -111,25 +111,27 @@ export class RestaurantService extends BaseService<RestaurantStore> {
     return true;
   }
 
-  private async createInitialState(): Promise<RestaurantStore> {
+  private async createInitialState(roomId: string): Promise<RestaurantStore> {
+    let menuLabel = this.roomStore.getRoom(roomId)?.final?.menu?.label;
+    if (!menuLabel) {
+      this.logger.error('Menu label not found', roomId);
+      menuLabel = '';
+    }
+    const latitude = this.roomStore.getRoom(roomId)?.final?.location?.lat;
+    const longitude = this.roomStore.getRoom(roomId)?.final?.location?.lng;
     const initialRestaurants: Restaurant[] = await this.searchRestaurant(
-      ['김밥'],
-      37.4806,
-      126.8521,
+      menuLabel,
+      latitude,
+      longitude,
     ).then((res) => res.documents);
     return {
       initialRestaurants,
       restaurantUserList: new Map(),
-      // sortBy: 'DIST',
-      // filters: {
-      //   categories: [],
-      //   priceLevels: [],
-      // },
     };
   }
 
   private async searchRestaurant(
-    categories: string[],
+    menuLabel: string,
     latitude?: number,
     longitude?: number,
     address?: string,
@@ -139,7 +141,7 @@ export class RestaurantService extends BaseService<RestaurantStore> {
       Authorization: `KakaoAK ${process.env.KAKAO_REST_KEY}`,
     };
     const query: any = {
-      query: categories.join(','),
+      query: menuLabel,
       category_group_code: 'FD6',
       radius: 10000,
       sort: 'accuracy',
@@ -163,9 +165,6 @@ export class RestaurantService extends BaseService<RestaurantStore> {
     } catch (error) {
       console.error(error);
     }
-    //  "Authorization", "KakaoAK " + REST_KEY
-    // https://developers.kakao.com/docs/latest/ko/local/dev-guide#coord-to-address
-    //https://developers.naver.com/docs/serviceapi/search/local/local.md#%EC%A7%80%EC%97%AD-%EA%B2%80%EC%83%89-%EA%B2%B0%EA%B3%BC-%EC%A1%B0%ED%9A%8C
   }
 
   /**
