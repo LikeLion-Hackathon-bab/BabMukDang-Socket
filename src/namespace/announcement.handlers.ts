@@ -11,6 +11,7 @@ import { LocationService } from 'src/domain/location';
 import { MenuService } from 'src/domain/menu';
 import { ExcludeMenuService } from 'src/domain/exclude-menu';
 import { RestaurantService } from 'src/domain/restaurant';
+import { ServerService } from 'src/domain/room';
 
 export const ANNOUNCEMENT_ROOM_STORE = 'ANNOUNCEMENT_ROOM_STORE';
 
@@ -19,8 +20,9 @@ export class AnnouncementRoomHandlers extends RoomHandlers {
   constructor(
     logger: WsLogger,
     @Inject(ANNOUNCEMENT_ROOM_STORE) roomService: RoomStoreService,
+    private readonly serverService: ServerService,
   ) {
-    super(logger, roomService);
+    super(logger, roomService, serverService);
   }
 }
 

@@ -56,31 +56,34 @@ export class InvitationRequestDto {
 export class AnnouncementResultRequestDto {
   @IsObject()
   @IsNotEmpty()
-  locationDetail: {
-    placeName: string;
-    placeAddress: string;
-    lat: number;
-    lng: number;
-  };
-  @IsObject()
+  location: string;
+  @IsString()
   @IsNotEmpty()
-  restaurant: RestaurantInfo;
+  meetingDate: string;
+  @IsString()
+  @IsNotEmpty()
+  meetingTime: string;
+  @IsString()
+  @IsNotEmpty()
+  author: {
+    name: string;
+  };
 }
 export class InvitationResultRequestDto {
   @IsObject()
   @IsNotEmpty()
-  locationDetail: {
-    placeName: string;
-    placeAddress: string;
-    lat: number;
-    lng: number;
-  };
-  @IsObject()
-  @IsNotEmpty()
-  restaurant: RestaurantInfo;
+  location: string;
   @IsString()
   @IsNotEmpty()
-  meetingAt: string;
+  meetingDate: string;
+  @IsString()
+  @IsNotEmpty()
+  meetingTime: string;
+  @IsString()
+  @IsNotEmpty()
+  author: {
+    name: string;
+  };
 }
 
 export interface RestaurantInfo {

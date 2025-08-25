@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { BaseService } from 'src/domain/common/base.service';
 import { RoomStoreService } from 'src/domain/room/services/room.service';
-import { DateStore } from '../types/date.type';
+import { DateStore } from 'src/domain/date/types/date.type';
 import {
   AnnouncementStage,
   InvitationStage,
@@ -24,6 +24,26 @@ export class DateService extends BaseService<DateStore> {
           initialState: this.serialize(
             this.getStepState(roomId) ?? this.initializeStep(roomId),
           ),
+        });
+      },
+    );
+    emitter.on(
+      'request-final-state',
+      ({
+        roomId,
+        stage,
+      }: {
+        roomId: string;
+        stage: AnnouncementStage | InvitationStage;
+      }) => {
+        if (stage !== 'date') return;
+        const finalDate = this.calculateFinalDate(roomId);
+        const finalState = this.roomStore.getFinalState(roomId);
+        if (!finalState) return;
+        finalState.date = finalDate ?? '';
+        emitter.emit('final-state-response', {
+          roomId,
+          finalState,
         });
       },
     );
@@ -82,15 +102,18 @@ export class DateService extends BaseService<DateStore> {
   validateBusinessRules(
     _roomId: string,
     action: string,
-    payload: any,
+    payload: unknown,
   ): boolean {
     switch (action) {
-      case 'PICK_DATES':
-        return (
-          typeof payload.userId === 'string' &&
-          Array.isArray(payload.dates) &&
-          payload.dates.every((d: any) => typeof d === 'string')
+      case 'PICK_DATES': {
+        if (typeof payload !== 'object' || payload === null) return false;
+        const p = payload as { userId?: unknown; dates?: unknown };
+        if (typeof p.userId !== 'string') return false;
+        if (!Array.isArray(p.dates)) return false;
+        return (p.dates as unknown[]).every(
+          (d): d is string => typeof d === 'string',
         );
+      }
       default:
         return false;
     }
@@ -118,5 +141,45 @@ export class DateService extends BaseService<DateStore> {
       userId,
       dates,
     }));
+  }
+
+  /**
+   * 모든 유저가 선택한 날짜들의 교집합 중 가장 빠른 날짜를 반환합니다.
+   * 날짜 문자열은 표준 Date 파싱이 가능하면 시간으로 비교하고,
+   * 불가능할 경우 문자열 사전순 비교로 대체합니다.
+   */
+  calculateFinalDate(roomId: string): string | undefined {
+    const state = this.getStepState(roomId);
+    if (!state) return undefined;
+    const entries: string[][] = Array.from(state.pickedByUser.values());
+    if (entries.length === 0) return undefined;
+
+    // 교집합
+    let intersection: Set<string> = new Set<string>(entries[0] ?? []);
+    for (let i = 1; i < entries.length; i++) {
+      const cur: Set<string> = new Set<string>(entries[i] ?? []);
+      const filtered: string[] = Array.from(intersection).filter((d) =>
+        cur.has(d),
+      );
+      intersection = new Set<string>(filtered);
+      if (intersection.size === 0) break;
+    }
+    if (intersection.size === 0) return undefined;
+
+    // 가장 빠른 날짜 선택
+    const dates: string[] = Array.from(intersection);
+    const toTime = (s: string) => {
+      const t = Date.parse(s);
+      return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+    };
+    dates.sort((a: string, b: string) => {
+      const ta = toTime(a);
+      const tb = toTime(b);
+      if (ta === Number.POSITIVE_INFINITY && tb === Number.POSITIVE_INFINITY) {
+        return a.localeCompare(b);
+      }
+      return ta - tb;
+    });
+    return dates[0];
   }
 }

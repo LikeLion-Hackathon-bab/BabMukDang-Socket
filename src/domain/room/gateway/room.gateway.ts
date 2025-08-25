@@ -12,12 +12,14 @@ import {
 } from 'src/domain/common/types/stage';
 import { ReadyStateDto } from '../dto/request.dto';
 import { FinalState } from '../types/room.type';
+import { ServerService } from '../services/server.service';
 
 @Injectable()
 export class RoomHandlers {
   constructor(
     private readonly logger: WsLogger,
     private readonly roomService: RoomStoreService,
+    private readonly serverService: ServerService,
   ) {}
 
   handleFinalStateResponse(server: Server) {
@@ -141,6 +143,29 @@ export class RoomHandlers {
             this.logger.log(`Room ${roomId} already at final stage ${current}`);
             console.log(this.roomService.getFinalState(roomId));
             // todo: 이벤트 방송, 다 나가면 룸 삭제
+            this.serverService.postAnnouncementResult(roomId, {
+              location:
+                this.roomService.getFinalState(roomId)?.finalVote?.name ?? '',
+              meetingDate: (() => {
+                const meetingAt =
+                  this.roomService.getFinalState(roomId)?.meetingAt;
+                return meetingAt
+                  ? new Date(meetingAt).toISOString().split('T')[0]
+                  : '';
+              })(),
+              meetingTime: (() => {
+                const meetingAt =
+                  this.roomService.getFinalState(roomId)?.meetingAt;
+                return meetingAt
+                  ? new Date(meetingAt).toISOString().split('T')[1]?.slice(0, 5)
+                  : '';
+              })(),
+              author: {
+                name:
+                  this.roomService.getRoom(roomId)?.participants?.[0]?.name ??
+                  '',
+              },
+            });
             this.roomService.deleteRoom(roomId);
           }
         } catch (error) {
@@ -200,6 +225,26 @@ export class RoomHandlers {
           } else {
             // 최종 단계에서는 추가 진행 없음. 필요 시 완료 이벤트 방송 가능
             this.logger.log(`Room ${roomId} already at final stage ${current}`);
+            const finalState = this.roomService.getFinalState(roomId);
+            const finalTime = finalState?.time;
+            let meetingDate = '';
+            let meetingTime = '';
+            if (finalTime) {
+              const dateObj = new Date(finalTime);
+              meetingDate = dateObj.toISOString().split('T')[0];
+              meetingTime =
+                dateObj.toISOString().split('T')[1]?.slice(0, 5) ?? '';
+            }
+            this.serverService.postInvitationResult(roomId, {
+              location: finalState?.finalVote?.name ?? '',
+              meetingDate,
+              meetingTime,
+              author: {
+                name:
+                  this.roomService.getRoom(roomId)?.participants?.[0]?.name ??
+                  '',
+              },
+            });
             this.roomService.deleteRoom(roomId);
           }
         } catch (error) {

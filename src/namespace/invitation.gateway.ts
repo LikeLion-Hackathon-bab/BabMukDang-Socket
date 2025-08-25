@@ -91,9 +91,8 @@ export class InvitationGateway
         if (!token) return next(new Error('Unauthorized: token missing'));
 
         const userInfo = verifyToken(token, this.jwtService);
-        // 2) roomId 확보
-        const rawRoomId = socket.handshake.query.roomId as string | undefined;
-        if (!rawRoomId) return next(new Error('roomId is required'));
+        // 2) roomId 확보 (없으면 참여 중인 방을 자동 탐색)
+        let rawRoomId = socket.handshake.query.roomId as string | undefined;
 
         // 3) (선택) 방 멤버십/권한 검증
         // const ok = await this.roomService.canJoin(roomId, payload.sub);
@@ -108,6 +107,17 @@ export class InvitationGateway
         data.userId = userInfo.sub;
         data.username = userInfo.username;
         // Namespace-scoped room id to isolate store/state between gateways
+        if (!rawRoomId) {
+          const allRooms = this.roomService.getAllRooms();
+          for (const [rid] of allRooms.entries()) {
+            if (!rid.startsWith('invitation:')) continue;
+            if (this.roomService.canJoin(rid, data.userId)) {
+              rawRoomId = rid.split(':')[1];
+              break;
+            }
+          }
+        }
+        if (!rawRoomId) return next(new Error('No room found for this user'));
         const roomId = `invitation:${rawRoomId}`;
 
         // 4) 방 참여 검증, 방에 있는 인원인지
@@ -150,6 +160,7 @@ export class InvitationGateway
             this.roomService.getParticipants(roomId).values(),
           ),
         });
+        client.emit('room-assigned', { roomId: roomId.split(':')[1] });
         this.roomService.getStageState(roomId);
         // 방 참여 이벤트 발생
         this.server

@@ -86,9 +86,8 @@ export class AnnouncementGateway
 
         const userInfo = verifyToken(token, this.jwtService);
 
-        // 2) roomId 확보
-        const rawRoomId = socket.handshake.query.roomId as string | undefined;
-        if (!rawRoomId) return next(new Error('roomId is required'));
+        // 2) roomId 확보 (없으면 참여 중인 방을 자동 탐색)
+        let rawRoomId = socket.handshake.query.roomId as string | undefined;
 
         // 3) socket.data에 저장
         const data = socket.data as {
@@ -98,6 +97,18 @@ export class AnnouncementGateway
         };
         data.userId = userInfo.sub;
         data.username = userInfo.username;
+        // roomId가 비어있으면 현재 유저가 참여자로 등록된 announcement 네임스페이스의 방을 검색
+        if (!rawRoomId) {
+          const allRooms = this.roomService.getAllRooms();
+          for (const [rid] of allRooms.entries()) {
+            if (!rid.startsWith('announcement:')) continue;
+            if (this.roomService.canJoin(rid, data.userId)) {
+              rawRoomId = rid.split(':')[1];
+              break;
+            }
+          }
+        }
+        if (!rawRoomId) return next(new Error('No room found for this user'));
         const roomId = `announcement:${rawRoomId}`;
 
         // 4) 방 참여 검증, 방에 있는 인원인지
@@ -147,6 +158,8 @@ export class AnnouncementGateway
           locationInitial: this.roomService.getRoom(roomId)?.locationInitial,
           meetingAt: this.roomService.getRoom(roomId)?.meetingAt,
         });
+        // 방 정보 알림 (rawRoomId)
+        client.emit('room-assigned', { roomId: roomId.split(':')[1] });
         client.emit(
           'final-state-response',
           this.roomService.getFinalState(roomId),

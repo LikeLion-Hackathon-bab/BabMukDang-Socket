@@ -23,6 +23,8 @@ export interface FinalState {
   excludeMenu: MenuRecommendation[] | undefined;
   menu: MenuRecommendation | undefined;
   restaurant: Restaurant | undefined;
+  time: string;
+  date: string;
 }
 export interface RoomStore {
   roomId: Id;
