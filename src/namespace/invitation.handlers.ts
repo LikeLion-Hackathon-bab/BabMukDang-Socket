@@ -22,7 +22,7 @@ export class InvitationRoomHandlers extends RoomHandlers {
   constructor(
     logger: WsLogger,
     @Inject(INVITATION_ROOM_STORE) roomService: RoomStoreService,
-    private readonly serverService: ServerService,
+    serverService: ServerService,
   ) {
     super(logger, roomService, serverService);
   }
