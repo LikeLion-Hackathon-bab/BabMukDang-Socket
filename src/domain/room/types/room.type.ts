@@ -11,6 +11,8 @@ import {
   Restaurant,
   RestaurantStore,
 } from 'src/domain/restaurant/types/restaurant.type';
+import { DateStore } from 'src/domain/date/types/date.type';
+import { TimeStore } from 'src/domain/time/types/time.type';
 import {
   AnnouncementStage,
   InvitationStage,
@@ -33,6 +35,8 @@ export interface RoomStore {
   chat: ChatMessage[];
   meetingAt?: string;
   locationInitial?: string;
+  date?: DateStore;
+  time?: TimeStore;
   location?: LocationStore;
   restaurant?: RestaurantStore;
   menu?: MenuStore;

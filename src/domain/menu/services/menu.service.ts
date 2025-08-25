@@ -416,21 +416,26 @@ export class MenuService extends BaseService<MenuStore> {
     if (participants.size === 0) return [];
     const excludeMenus = this.roomStore.getFinalState(roomId)?.excludeMenu;
     console.log('excludeMenus', excludeMenus);
-    const response = (await fetch(
-      `${process.env.FOOD_RECOMMEND_SERVER}/v1/recommend`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          user_ids: Array.from(participants.keys()),
-          exclude_menus: excludeMenus,
-          top_k: 6,
-        }),
-        headers: {
-          'Content-Type': 'application/json',
+    try {
+      const response = (await fetch(
+        `${process.env.FOOD_RECOMMEND_SERVER}/v1/recommend`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            user_ids: Array.from(participants.keys()),
+            exclude_menus: excludeMenus,
+            top_k: 6,
+          }),
+          headers: {
+            'Content-Type': 'application/json',
+          },
         },
-      },
-    ).then((res) => res.json())) as MenuRecommendationResponseDto;
-    return response.recommendations;
+      ).then((res) => res.json())) as MenuRecommendationResponseDto;
+      return response.recommendations;
+    } catch (error) {
+      this.logger.error(`Error getting menu recommendation: ${error}`);
+      return [];
+    }
   }
 
   calculateFinalMenu(roomId: string): MenuRecommendation | undefined {
