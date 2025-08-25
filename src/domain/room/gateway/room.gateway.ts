@@ -27,13 +27,7 @@ export class RoomHandlers {
     emitter.on(
       'final-state-response',
       ({ roomId, finalState }: { roomId: string; finalState: FinalState }) => {
-        const stage = this.roomService.getStage(roomId);
-        const stageMap = {
-          location: 'location',
-          'exclude-menu': 'excludeMenu',
-          menu: 'menu',
-          restaurant: 'restaurant',
-        };
+        void this.roomService.getStage(roomId);
         server.to(roomId).emit('final-state-response', {
           roomId,
           finalState,
@@ -143,19 +137,18 @@ export class RoomHandlers {
             this.logger.log(`Room ${roomId} already at final stage ${current}`);
             console.log(this.roomService.getFinalState(roomId));
             // todo: 이벤트 방송, 다 나가면 룸 삭제
-            this.serverService.postAnnouncementResult(roomId, {
+            void this.serverService.postAnnouncementResult(roomId, {
               location:
-                this.roomService.getFinalState(roomId)?.finalVote?.name ?? '',
+                this.roomService.getFinalState(roomId)?.location?.placeName ??
+                '',
               meetingDate: (() => {
-                const meetingAt =
-                  this.roomService.getFinalState(roomId)?.meetingAt;
+                const meetingAt = this.roomService.getRoom(roomId)?.meetingAt;
                 return meetingAt
                   ? new Date(meetingAt).toISOString().split('T')[0]
                   : '';
               })(),
               meetingTime: (() => {
-                const meetingAt =
-                  this.roomService.getFinalState(roomId)?.meetingAt;
+                const meetingAt = this.roomService.getRoom(roomId)?.meetingAt;
                 return meetingAt
                   ? new Date(meetingAt).toISOString().split('T')[1]?.slice(0, 5)
                   : '';
@@ -235,8 +228,8 @@ export class RoomHandlers {
               meetingTime =
                 dateObj.toISOString().split('T')[1]?.slice(0, 5) ?? '';
             }
-            this.serverService.postInvitationResult(roomId, {
-              location: finalState?.finalVote?.name ?? '',
+            void this.serverService.postInvitationResult(roomId, {
+              location: finalState?.location?.placeName ?? '',
               meetingDate,
               meetingTime,
               author: {
