@@ -42,6 +42,8 @@ export class RoomStoreService {
         excludeMenu: undefined,
         menu: undefined,
         restaurant: undefined,
+        time: '',
+        date: '',
       },
       timeout: undefined,
     };
