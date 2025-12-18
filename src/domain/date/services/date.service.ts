@@ -145,8 +145,7 @@ export class DateService extends BaseService<DateStore> {
 
   /**
    * 모든 유저가 선택한 날짜들의 교집합 중 가장 빠른 날짜를 반환합니다.
-   * 날짜 문자열은 표준 Date 파싱이 가능하면 시간으로 비교하고,
-   * 불가능할 경우 문자열 사전순 비교로 대체합니다.
+   * 커스텀 날짜 포맷 '25. 08. 02'와 ISO 날짜 모두 지원합니다.
    */
   calculateFinalDate(roomId: string): string | undefined {
     const state = this.getStepState(roomId);
@@ -166,15 +165,27 @@ export class DateService extends BaseService<DateStore> {
     }
     if (intersection.size === 0) return undefined;
 
-    // 가장 빠른 날짜 선택
-    const dates: string[] = Array.from(intersection);
-    const toTime = (s: string) => {
+    // 커스텀 날짜 포맷 파싱 ('25. 08. 02' -> timestamp)
+    const parseCustomDate = (s: string): number => {
+      // 형식: 'YY. MM. DD'
+      const match = s.match(/^(\d{2})\.\s*(\d{2})\.\s*(\d{2})$/);
+      if (match) {
+        const [, yy, mm, dd] = match;
+        const year = 2000 + parseInt(yy, 10);
+        const month = parseInt(mm, 10) - 1;
+        const day = parseInt(dd, 10);
+        return new Date(year, month, day).getTime();
+      }
+      // ISO 날짜 fallback
       const t = Date.parse(s);
       return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
     };
+
+    // 가장 빠른 날짜 선택
+    const dates: string[] = Array.from(intersection);
     dates.sort((a: string, b: string) => {
-      const ta = toTime(a);
-      const tb = toTime(b);
+      const ta = parseCustomDate(a);
+      const tb = parseCustomDate(b);
       if (ta === Number.POSITIVE_INFINITY && tb === Number.POSITIVE_INFINITY) {
         return a.localeCompare(b);
       }

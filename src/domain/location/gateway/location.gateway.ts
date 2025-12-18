@@ -57,7 +57,15 @@ export class LocationHandlers {
   ) {
     const { candidateId } = payload;
 
-    // TODO: Implement removeLocationCandidate method in RoomStoreService
+    // 실제로 후보 삭제
+    const success = this.locationService.removeCandidate(roomId, candidateId);
+    if (!success) {
+      this.logger.warn(
+        `Failed to remove location candidate ${candidateId} in room ${roomId}`,
+      );
+      return;
+    }
+
     this.logger.log(
       `Location candidate ${candidateId} removed by user ${userInfo.userId} in room ${roomId}`,
     );

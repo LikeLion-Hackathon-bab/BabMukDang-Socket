@@ -1,91 +1,108 @@
-import { IsArray, IsNotEmpty, IsObject, IsString } from 'class-validator';
-import { MenuRecommendation } from 'src/domain/menu/types/menu.type';
+import { IsArray, IsNotEmpty, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ParticipantDto,
+  RecentMenuDto,
+  AuthorDto,
+} from 'src/domain/common/dto';
 
-//스프링 서버에서 사용하는 DTO
+/**
+ * Spring 서버 → WebSocket 서버: Announcement 방 생성 요청
+ * Spring WebSocketRequestDto와 매핑
+ */
 export class AnnouncementRequestDto {
   @IsString()
   @IsNotEmpty()
   announcementId: string;
+
   @IsString()
   @IsNotEmpty()
   location: string;
+
   @IsString()
   @IsNotEmpty()
   meetingAt: string;
+
   @IsArray()
-  @IsNotEmpty()
-  participants: [
-    {
-      userId: string;
-      userName: string;
-      userProfileImageURL: string;
-    },
-  ];
+  @ValidateNested({ each: true })
+  @Type(() => ParticipantDto)
+  participants: ParticipantDto[];
+
   @IsArray()
-  @IsNotEmpty()
-  recentMenu: [
-    {
-      userId: string;
-      menu: MenuRecommendation[];
-    },
-  ];
+  @ValidateNested({ each: true })
+  @Type(() => RecentMenuDto)
+  recentMenu: RecentMenuDto[];
 }
+
+/**
+ * Spring 서버 → WebSocket 서버: Invitation 방 생성 요청
+ * Spring InvitationSocketRequestDto와 매핑
+ */
 export class InvitationRequestDto {
   @IsString()
   @IsNotEmpty()
   invitationId: string;
+
   @IsArray()
-  @IsNotEmpty()
-  participants: [
-    {
-      userId: string;
-      username: string;
-      userProfileImageURL: string;
-    },
-  ];
-  // participantNames: string[];
+  @ValidateNested({ each: true })
+  @Type(() => ParticipantDto)
+  participants: ParticipantDto[];
+
   @IsArray()
-  @IsNotEmpty()
-  recentMenu: [
-    {
-      userId: string;
-      menu: MenuRecommendation[];
-    },
-  ];
-}
-export class AnnouncementResultRequestDto {
-  @IsObject()
-  @IsNotEmpty()
-  location: string;
-  @IsString()
-  @IsNotEmpty()
-  meetingDate: string;
-  @IsString()
-  @IsNotEmpty()
-  meetingTime: string;
-  @IsString()
-  @IsNotEmpty()
-  author: {
-    name: string;
-  };
-}
-export class InvitationResultRequestDto {
-  @IsObject()
-  @IsNotEmpty()
-  location: string;
-  @IsString()
-  @IsNotEmpty()
-  meetingDate: string;
-  @IsString()
-  @IsNotEmpty()
-  meetingTime: string;
-  @IsString()
-  @IsNotEmpty()
-  author: {
-    name: string;
-  };
+  @ValidateNested({ each: true })
+  @Type(() => RecentMenuDto)
+  recentMenu: RecentMenuDto[];
 }
 
+/**
+ * WebSocket 서버 → Spring 서버: Announcement 결과 전송
+ * Spring PlanDtos.CreateRequest와 매핑
+ * 날짜 형식: yyyy-MM-dd, 시간 형식: HH:mm
+ */
+export class AnnouncementResultRequestDto {
+  @IsString()
+  @IsNotEmpty()
+  location: string;
+
+  @IsString()
+  @IsNotEmpty()
+  meetingDate: string; // yyyy-MM-dd format
+
+  @IsString()
+  @IsNotEmpty()
+  meetingTime: string; // HH:mm format
+
+  @ValidateNested()
+  @Type(() => AuthorDto)
+  author: AuthorDto;
+}
+
+/**
+ * WebSocket 서버 → Spring 서버: Invitation 결과 전송
+ * Spring PlanDtos.CreateRequest와 매핑
+ * 날짜 형식: yyyy-MM-dd, 시간 형식: HH:mm
+ */
+export class InvitationResultRequestDto {
+  @IsString()
+  @IsNotEmpty()
+  location: string;
+
+  @IsString()
+  @IsNotEmpty()
+  meetingDate: string; // yyyy-MM-dd format
+
+  @IsString()
+  @IsNotEmpty()
+  meetingTime: string; // HH:mm format
+
+  @ValidateNested()
+  @Type(() => AuthorDto)
+  author: AuthorDto;
+}
+
+/**
+ * 레스토랑 정보 (Kakao API 기반)
+ */
 export interface RestaurantInfo {
   placeId: string;
   placeName: string;

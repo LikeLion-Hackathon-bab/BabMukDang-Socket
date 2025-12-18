@@ -27,9 +27,13 @@ export class RoomStoreService {
    * 방 생성 또는 기존 방 반환
    */
   ensureRoom(roomId: string): RoomStore {
-    let room = this.rooms.get(roomId);
+    const existingRoom = this.rooms.get(roomId);
+    if (existingRoom) {
+      this.logger.log(`Returning existing room: ${roomId}`);
+      return existingRoom;
+    }
 
-    room = {
+    const room: RoomStore = {
       roomId,
       version: 1,
       updatedAt: Date.now(),
@@ -49,11 +53,7 @@ export class RoomStoreService {
     };
 
     this.rooms.set(roomId, room);
-    this.logger.log(
-      `Created new room: ${roomId}, stage: ${room.stage} ${JSON.stringify(
-        Array.from(room.recentMenu.entries()),
-      )}`,
-    );
+    this.logger.log(`Created new room: ${roomId}, stage: ${room.stage}`);
 
     return room;
   }
@@ -371,13 +371,13 @@ export class RoomStoreService {
       room = this.ensureRoom(roomId);
       this.rooms.set(roomId, room);
     }
-    // 참가자 세팅 (invitation: username)
+    // 참가자 세팅 (Spring ParticipationSocketDto: userName)
     room.participants = new Map(
       dto.participants.map((p) => [
         p.userId,
         {
           userId: p.userId,
-          username: p.username,
+          username: p.userName,
           userProfileImageURL: p.userProfileImageURL ?? '',
           ready: false,
         },

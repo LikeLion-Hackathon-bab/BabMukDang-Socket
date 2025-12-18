@@ -175,7 +175,11 @@ export class LocationService extends BaseService<LocationStore> {
   /**
    * Step 2 비즈니스 로직을 검증합니다
    */
-  validateBusinessRules(roomId: string, action: string, payload: any): boolean {
+  validateBusinessRules(
+    roomId: string,
+    action: string,
+    payload: unknown,
+  ): boolean {
     switch (action) {
       case 'ADD_CANDIDATE':
         return this.validateAddCandidate(roomId, payload);
@@ -193,13 +197,12 @@ export class LocationService extends BaseService<LocationStore> {
   /**
    * 후보 추가를 검증합니다
    */
-  private validateAddCandidate(roomId: string, payload: any): boolean {
-    if (!payload.placeName || typeof payload.placeName !== 'string')
-      return false;
-    if (typeof payload.lat !== 'number' || typeof payload.lng !== 'number')
-      return false;
-    if (payload.lat < -90 || payload.lat > 90) return false;
-    if (payload.lng < -180 || payload.lng > 180) return false;
+  private validateAddCandidate(roomId: string, payload: unknown): boolean {
+    const p = payload as { placeName?: unknown; lat?: unknown; lng?: unknown };
+    if (!p.placeName || typeof p.placeName !== 'string') return false;
+    if (typeof p.lat !== 'number' || typeof p.lng !== 'number') return false;
+    if (p.lat < -90 || p.lat > 90) return false;
+    if (p.lng < -180 || p.lng > 180) return false;
 
     const state = this.getStepState(roomId);
     if (!state) return false;
@@ -213,15 +216,15 @@ export class LocationService extends BaseService<LocationStore> {
   /**
    * 후보 제거를 검증합니다
    */
-  private validateRemoveCandidate(roomId: string, payload: any): boolean {
-    if (!payload.candidateId || typeof payload.candidateId !== 'string')
-      return false;
+  private validateRemoveCandidate(roomId: string, payload: unknown): boolean {
+    const p = payload as { candidateId?: unknown };
+    if (!p.candidateId || typeof p.candidateId !== 'string') return false;
 
     const state = this.getStepState(roomId);
     if (!state) return false;
 
     // 후보가 존재하는지 확인
-    if (!state.candidates.has(payload.candidateId)) return false;
+    if (!state.candidates.has(p.candidateId)) return false;
 
     return true;
   }
@@ -229,19 +232,19 @@ export class LocationService extends BaseService<LocationStore> {
   /**
    * 후보 투표를 검증합니다
    */
-  private validateVoteCandidate(roomId: string, payload: any): boolean {
-    if (!payload.candidateId || typeof payload.candidateId !== 'string')
-      return false;
-    if (!payload.userId || typeof payload.userId !== 'string') return false;
+  private validateVoteCandidate(roomId: string, payload: unknown): boolean {
+    const p = payload as { candidateId?: unknown; userId?: unknown };
+    if (!p.candidateId || typeof p.candidateId !== 'string') return false;
+    if (!p.userId || typeof p.userId !== 'string') return false;
 
     const state = this.getStepState(roomId);
     if (!state) return false;
 
     // 후보가 존재하는지 확인
-    if (!state.candidates.has(payload.candidateId)) return false;
+    if (!state.candidates.has(p.candidateId)) return false;
 
     // 사용자가 방에 있는지 확인
-    if (!this.isUserInRoom(roomId, payload.userId)) return false;
+    if (!this.isUserInRoom(roomId, p.userId)) return false;
 
     return true;
   }
@@ -249,27 +252,33 @@ export class LocationService extends BaseService<LocationStore> {
   /**
    * 후보 선택을 검증합니다
    */
-  private validateSelectCandidate(roomId: string, payload: any): boolean {
-    if (!payload.candidateId || typeof payload.candidateId !== 'string')
-      return false;
+  private validateSelectCandidate(roomId: string, payload: unknown): boolean {
+    const p = payload as { candidateId?: unknown };
+    if (!p.candidateId || typeof p.candidateId !== 'string') return false;
 
     const state = this.getStepState(roomId);
     if (!state) return false;
 
     // 후보가 존재하는지 확인
-    if (!state.candidates.has(payload.candidateId)) return false;
+    if (!state.candidates.has(p.candidateId)) return false;
 
     return true;
   }
 
   private serializeLocationStore(store: LocationStore): {
     candidates: LocationCandidateDto[];
-    votes: Set<Id>[];
+    votes: Record<Id, Id[]>;
     maxCandidates: number;
   } {
+    // votes Map<Id, Set<Id>>를 Record<Id, Id[]>로 직렬화
+    const serializedVotes: Record<Id, Id[]> = {};
+    store.votes.forEach((userSet, candidateId) => {
+      serializedVotes[candidateId] = Array.from(userSet);
+    });
+
     return {
       candidates: Array.from(store.candidates.values()),
-      votes: Array.from(store.votes.values()),
+      votes: serializedVotes,
       maxCandidates: store.maxCandidates,
     };
   }

@@ -57,15 +57,19 @@ export class ServerService {
     roomId: string,
     dto: AnnouncementResultRequestDto,
   ) {
+    // roomId에서 'announcement:' prefix 제거
+    const cleanRoomId = roomId.replace(/^announcement:/, '');
     return this.safePost<AnnouncementResultRequestDto>(
-      `${process.env.SPRING_API_SERVER}/announcement/${roomId}`,
+      `${process.env.SPRING_API_SERVER}/announcement/${cleanRoomId}`,
       dto,
     );
   }
 
   async postInvitationResult(roomId: string, dto: InvitationResultRequestDto) {
+    // roomId에서 'invitation:' prefix 제거
+    const cleanRoomId = roomId.replace(/^invitation:/, '');
     return this.safePost<InvitationResultRequestDto>(
-      `${process.env.SPRING_API_SERVER}/invitation/${roomId}`,
+      `${process.env.SPRING_API_SERVER}/invitation/${cleanRoomId}`,
       dto,
     );
   }
