@@ -201,8 +201,6 @@ export class LocationService extends BaseService<LocationStore> {
     const p = payload as { placeName?: unknown; lat?: unknown; lng?: unknown };
     if (!p.placeName || typeof p.placeName !== 'string') return false;
     if (typeof p.lat !== 'number' || typeof p.lng !== 'number') return false;
-    if (p.lat < -90 || p.lat > 90) return false;
-    if (p.lng < -180 || p.lng > 180) return false;
 
     const state = this.getStepState(roomId);
     if (!state) return false;
