@@ -93,7 +93,7 @@ export class RoomHandlers {
     const emitter = this.roomService.getEventEmitter();
     emitter.on(
       'ready-state-completed',
-      ({
+      async ({
         roomId,
         stage,
       }: {
@@ -110,6 +110,11 @@ export class RoomHandlers {
           )?.[0] as AnnouncementStage;
 
           if (current < 7) {
+            if (nextStage === 'finish') {
+              const restaurant = this.roomService.getFinalState(roomId)?.restaurant?.name;
+              if (!restaurant) throw new Error('A confirmed restaurant is required');
+              await this.serverService.saveConfirmedRestaurant(roomId.slice('announcement:'.length), restaurant);
+            }
             this.roomService.setStage(roomId, nextStage);
             emitter.emit('request-initial-state', {
               roomId,
@@ -135,33 +140,12 @@ export class RoomHandlers {
             );
           } else {
             this.logger.log(`Room ${roomId} already at final stage ${current}`);
-            console.log(this.roomService.getFinalState(roomId));
-            // todo: 이벤트 방송, 다 나가면 룸 삭제
-            void this.serverService.postAnnouncementResult(roomId, {
-              location:
-                this.roomService.getFinalState(roomId)?.location?.placeName ??
-                '',
-              meetingDate: (() => {
-                const meetingAt = this.roomService.getRoom(roomId)?.meetingAt;
-                return meetingAt
-                  ? new Date(meetingAt).toISOString().split('T')[0]
-                  : '';
-              })(),
-              meetingTime: (() => {
-                const meetingAt = this.roomService.getRoom(roomId)?.meetingAt;
-                return meetingAt
-                  ? new Date(meetingAt).toISOString().split('T')[1]?.slice(0, 5)
-                  : '';
-              })(),
-              author: {
-                name:
-                  this.roomService.getRoom(roomId)?.participants?.[0]?.name ??
-                  '',
-              },
-            });
+            server.to(roomId).emit('meeting-saved');
             this.roomService.deleteRoom(roomId);
           }
         } catch (error) {
+          this.roomService.resetParticipantsReadyState(roomId);
+          server.to(roomId).emit('meeting-save-failed');
           const errorMessage =
             error instanceof Error ? error.message : 'Unknown error';
           this.logger.error(

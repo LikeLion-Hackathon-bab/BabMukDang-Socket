@@ -53,6 +53,18 @@ export class ServerService {
     }
   }
 
+  async saveConfirmedRestaurant(postId: string, restaurant: string): Promise<void> {
+    const key = process.env.ROOM_RESULT_KEY;
+    const origin = process.env.SPRING_API_SERVER;
+    if (!key || !origin) throw new Error('Room result destination is not configured');
+    const base = origin.replace(/\/+$/, '').replace(/\/api\/v1$/, '');
+    await lastValueFrom(this.http.post(
+      base + '/api/v1/meetings/' + encodeURIComponent(postId) + '/result',
+      { restaurant },
+      { headers: { 'X-Room-Key': key }, timeout: 5000 },
+    ));
+  }
+
   async postAnnouncementResult(
     roomId: string,
     dto: AnnouncementResultRequestDto,

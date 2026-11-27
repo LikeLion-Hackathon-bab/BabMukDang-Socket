@@ -38,6 +38,8 @@ export class RoomStoreService {
       recentMenu: new Map(),
       chat: [],
       final: {
+        date: '',
+        time: '',
         location: undefined,
         excludeMenu: undefined,
         menu: undefined,

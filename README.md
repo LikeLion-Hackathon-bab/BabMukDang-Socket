@@ -96,3 +96,7 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+### Spring 밥약 저장
+
+`SPRING_API_SERVER`와 `ROOM_RESULT_KEY`를 Spring 환경에 맞춘다. 공고 방의 식당 투표가 끝나면 Spring이 저장을 확인한 뒤 완료 화면으로 전환한다. 저장이 실패하면 방을 유지해 다시 준비할 수 있다. `CLIENT_ORIGIN`은 브라우저가 업로드 요청을 보내는 프론트 주소다. Spring에서 이 서버의 방 초기화 API를 부를 때는 같은 키를 `X-Room-Key` 헤더에 보낸다.

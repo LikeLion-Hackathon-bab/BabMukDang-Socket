@@ -123,7 +123,9 @@ export class RestaurantService extends BaseService<RestaurantStore> {
       menuLabel,
       latitude,
       longitude,
-    ).then((res) => res.documents);
+    ).then((res) => res.documents.map((place: {id: string; place_name: string; x: string; y: string}) => ({
+      ...place, name: place.place_name, lat: Number(place.y), lng: Number(place.x),
+    })));
     return {
       initialRestaurants,
       restaurantUserList: new Map(),
@@ -136,7 +138,7 @@ export class RestaurantService extends BaseService<RestaurantStore> {
     longitude?: number,
     address?: string,
   ): Promise<any> {
-    const url = `https://dapi.kakao.com/v2/local/search/keyword`;
+    const url = new URL('/v2/local/search/keyword', process.env.KAKAO_LOCAL_BASE_URL ?? 'https://dapi.kakao.com').toString();
     const headers = {
       Authorization: `KakaoAK ${process.env.KAKAO_REST_KEY}`,
     };
