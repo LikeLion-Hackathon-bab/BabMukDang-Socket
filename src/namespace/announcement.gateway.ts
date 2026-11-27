@@ -168,7 +168,7 @@ export class AnnouncementGateway
         this.roomService.getStageState(roomId);
 
         // 방 참여 이벤트 발생
-        client.broadcast.emit(
+        client.to(roomId).emit(
           'join-room',
           Array.from(this.roomService.getParticipants(roomId).values()),
         );
