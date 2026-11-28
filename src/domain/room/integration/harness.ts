@@ -259,9 +259,12 @@ export async function seedAnnouncement(
   port: number,
   postId: string,
   userIds: string[],
+  opts: { authoritative?: boolean } = {},
 ): Promise<number> {
   const res = await fetch(
-    `http://127.0.0.1:${port}/api/announcement/${postId}`,
+    `http://127.0.0.1:${port}/api/announcement/${postId}${
+      opts.authoritative ? '?authoritative=true' : ''
+    }`,
     {
       method: 'POST',
       headers: {

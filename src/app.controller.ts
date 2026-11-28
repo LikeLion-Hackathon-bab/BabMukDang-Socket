@@ -60,9 +60,14 @@ export class AppController {
   setUpAnnouncement(
     @Param('announcementId') announcementId: string,
     @Body() body: AnnouncementRequestDto,
+    @Query('authoritative') authoritative?: string,
   ) {
     const roomId = `announcement:${announcementId}`;
-    return this.announcementStore.seedFromAnnouncement(roomId, body);
+    return this.announcementStore.seedFromAnnouncement(
+      roomId,
+      body,
+      authoritative === 'true',
+    );
   }
   @Post('api/announcement/:announcementId/leave')
   @HttpCode(200)
@@ -96,8 +101,13 @@ export class AppController {
   setUpInvitation(
     @Param('invitationId') invitationId: string,
     @Body() body: InvitationRequestDto,
+    @Query('authoritative') authoritative?: string,
   ) {
     const roomId = `invitation:${invitationId}`;
-    return this.invitationStore.seedFromInvitation(roomId, body);
+    return this.invitationStore.seedFromInvitation(
+      roomId,
+      body,
+      authoritative === 'true',
+    );
   }
 }

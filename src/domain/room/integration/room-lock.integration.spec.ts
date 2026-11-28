@@ -51,16 +51,14 @@ describe('room lock (S1, S4)', () => {
     clients = users.map((u) => connectUser(booted.port, u, roomId));
     await Promise.all(clients.map((c) => connected(c)));
     await allReadyAndAdvance(clients, 'location');
-    clients
-      .slice(0, 2)
-      .forEach((c, i) =>
-        c.socket.emit('add-location-candidate', {
-          placeName: `cand-${c.userId}`,
-          lat: 37 + i / 10,
-          lng: 127,
-          address: `a${i}`,
-        }),
-      );
+    clients.slice(0, 2).forEach((c, i) =>
+      c.socket.emit('add-location-candidate', {
+        placeName: `cand-${c.userId}`,
+        lat: 37 + i / 10,
+        lng: 127,
+        address: `a${i}`,
+      }),
+    );
     await sleep(500);
     const lists = clients[0].of('location-candidate-added') as Cand[][];
     const byName = Object.fromEntries(
@@ -125,9 +123,11 @@ describe('room lock (S1, S4)', () => {
           emit: (ev: string, p: unknown) => emitted.push({ ev, p }),
         }),
       } as unknown as Server;
-      new RoomHandlers(quiet as never, store, ss).handleAutoProgressAnnouncement(
-        server,
-      );
+      new RoomHandlers(
+        quiet as never,
+        store,
+        ss,
+      ).handleAutoProgressAnnouncement(server);
       spring.delayMs = 3000;
       users.forEach((u) => store.updateParticipantReadyState(ROOM, u, true));
       await sleep(3300);

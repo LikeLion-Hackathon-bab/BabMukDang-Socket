@@ -506,6 +506,28 @@ export class RoomStoreService
   }
 
   /**
+   * 권위 시드(Spring 입장 API 가 DB 참여자 목록으로 보낸 시드)에 없는 참가자를 뺀다(리뷰 S2).
+   * 나가기 알림이 유실됐거나 재시작 복원으로 나간 사람이 돌아온 경우를 바로잡는다.
+   * 정리 방식은 나가기 알림(dissolve:false)과 같다. 이벤트 경로의 시드는 커밋 전 발행일 수 있어 권위가 없다.
+   */
+  private dropMissingParticipants(
+    roomId: string,
+    participants: Array<{ userId: string }>,
+  ): void {
+    const keep = new Set((participants ?? []).map((p) => p?.userId));
+    if (keep.size === 0) return;
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    for (const uid of Array.from(room.participants.keys()))
+      if (!keep.has(uid)) {
+        this.logger.log(
+          `Room ${roomId} authoritative seed dropped participant ${uid}`,
+        );
+        this.leaveRoom(roomId, uid, false);
+      }
+  }
+
+  /**
    * 이미 있는 방에 다시 시드가 오면(완료 이벤트 재전달, 입장 API) 진행 상태는 그대로 두고
    * 빠진 참가자만 더한다. Spring 이 커밋 전에 완료 이벤트를 발행해 마지막 참가자가
    * 빠진 명단으로 방이 먼저 만들어지는 경우를 입장 API 가 바로잡는다.
@@ -545,13 +567,20 @@ export class RoomStoreService
   /**
    * 외부 API로부터 전달받은 Announcement 초기 데이터로 룸 시드
    */
-  seedFromAnnouncement(roomId: string, dto: AnnouncementRequestDto): void {
-    if (this.rooms.has(roomId))
+  seedFromAnnouncement(
+    roomId: string,
+    dto: AnnouncementRequestDto,
+    authoritative = false,
+  ): void {
+    if (this.rooms.has(roomId)) {
+      if (authoritative || dto.authoritative === true)
+        this.dropMissingParticipants(roomId, dto.participants);
       return this.mergeParticipants(
         roomId,
         dto.participants.map((p) => ({ ...p, username: p.userName })),
         dto.recentMenu,
       );
+    }
     const room = this.ensureRoom(roomId);
     room.locationInitial = dto.location;
     room.meetingAt = dto.meetingAt;
@@ -575,9 +604,16 @@ export class RoomStoreService
   /**
    * 외부 API로부터 전달받은 Invitation 초기 데이터로 룸 시드
    */
-  seedFromInvitation(roomId: string, dto: InvitationRequestDto): void {
-    if (this.rooms.has(roomId))
+  seedFromInvitation(
+    roomId: string,
+    dto: InvitationRequestDto,
+    authoritative = false,
+  ): void {
+    if (this.rooms.has(roomId)) {
+      if (authoritative || dto.authoritative === true)
+        this.dropMissingParticipants(roomId, dto.participants);
       return this.mergeParticipants(roomId, dto.participants, dto.recentMenu);
+    }
     const room = this.ensureRoom(roomId);
     // 참가자 세팅 (invitation: username)
     room.participants = new Map(

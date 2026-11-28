@@ -37,6 +37,10 @@ export class AnnouncementRequestDto {
       menu: MenuRecommendation[];
     },
   ];
+  /** true 면 participants 가 정답 명단이다(입장 API). 없는 참가자는 뺀다. ?authoritative=true 와 같다 */
+  @IsOptional()
+  @IsBoolean()
+  authoritative?: boolean;
 }
 export class InvitationRequestDto {
   @IsString()
@@ -60,6 +64,10 @@ export class InvitationRequestDto {
       menu: MenuRecommendation[];
     },
   ];
+  /** true 면 participants 가 정답 명단이다(입장 API). 없는 참가자는 뺀다. ?authoritative=true 와 같다 */
+  @IsOptional()
+  @IsBoolean()
+  authoritative?: boolean;
 }
 export class AnnouncementResultRequestDto {
   @IsObject()

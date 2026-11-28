@@ -152,6 +152,51 @@ describe('참여 취소 알림', () => {
     expect(denied.errors).toContain('Forbidden: not a room member');
   });
 
+  it('S2: 나가기 알림이 유실돼도 재시작 뒤 권위 시드(입장 API)가 나간 사람을 뺀다', async () => {
+    let booted = await boot();
+    app = booted.app;
+    const roomId = `${Date.now() % 100000}9`;
+    await seedAnnouncement(booted.port, roomId, users);
+    clients = users.map((u) => connectUser(booted.port, u, roomId));
+    await Promise.all(clients.map((c) => connected(c)));
+    await allReadyAndAdvance(clients, 'location');
+    await sleep(100);
+    clients.forEach((c) => c.close());
+    clients = [];
+    await app.close();
+    // 13 이 나갔지만 알림이 유실됐다. 재시작하면 스냅샷이 13 을 되살린다
+    booted = await boot();
+    app = booted.app;
+    // 이벤트 경로(권위 없음) 시드는 더하기만 한다
+    await seedAnnouncement(booted.port, roomId, ['11', '12']);
+    const stale = connectUser(booted.port, '13', roomId);
+    clients.push(stale);
+    await connected(stale);
+    // 입장 API 시드는 정답 명단이다
+    await seedAnnouncement(booted.port, roomId, ['11', '12'], {
+      authoritative: true,
+    });
+    await stale.waitFor('room-left');
+    const a = connectUser(booted.port, '11', roomId);
+    const b = connectUser(booted.port, '12', roomId);
+    clients.push(a, b);
+    await Promise.all([a, b].map((x) => connected(x)));
+    const init = await a.waitFor<{ participants?: { userId: string }[] }>(
+      'initial-state-response',
+      (p) => Array.isArray(p.participants),
+    );
+    expect(init.participants!.map((p) => p.userId).sort()).toEqual([
+      '11',
+      '12',
+    ]);
+    // 2명만 준비해도 다음 단계로 간다
+    await allReadyAndAdvance([a, b], 'location-vote');
+    const again = connectUser(booted.port, '13', roomId);
+    clients.push(again);
+    await sleep(500);
+    expect(again.errors).toContain('Forbidden: not a room member');
+  });
+
   it('키 없거나 틀리면 403, userId 없으면 400', async () => {
     const booted = await boot();
     app = booted.app;
