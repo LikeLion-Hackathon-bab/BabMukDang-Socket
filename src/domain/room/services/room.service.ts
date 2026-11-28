@@ -8,6 +8,7 @@ import {
 import { EventEmitter } from 'events';
 import { ChatMessage } from 'src/domain/chat/types/chat.type';
 import { ExtendedParticipant } from '../types/room.type';
+import type { MenuRecommendation } from 'src/domain/menu/types/menu.type';
 import { Id } from 'src/domain/common/types';
 import { WsLogger } from 'src/domain/common/logger/ws-logger.service';
 import { FinalState, RoomStore } from '../types/room.type';
@@ -436,10 +437,52 @@ export class RoomStoreService
   }
 
   /**
+   * 이미 있는 방에 다시 시드가 오면(완료 이벤트 재전달, 입장 API) 진행 상태는 그대로 두고
+   * 빠진 참가자만 더한다. Spring 이 커밋 전에 완료 이벤트를 발행해 마지막 참가자가
+   * 빠진 명단으로 방이 먼저 만들어지는 경우를 입장 API 가 바로잡는다.
+   */
+  private mergeParticipants(
+    roomId: string,
+    participants: Array<{
+      userId: string;
+      username: string;
+      userProfileImageURL?: string;
+    }>,
+    recentMenu: Array<{ userId: string; menu: MenuRecommendation[] }>,
+  ): void {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    const added: string[] = [];
+    for (const p of participants ?? []) {
+      if (!p?.userId || room.participants.has(p.userId)) continue;
+      room.participants.set(p.userId, {
+        userId: p.userId,
+        username: p.username,
+        userProfileImageURL: p.userProfileImageURL ?? '',
+        ready: false,
+      });
+      added.push(p.userId);
+    }
+    for (const r of recentMenu ?? [])
+      if (r?.userId && !room.recentMenu.has(r.userId))
+        room.recentMenu.set(r.userId, r.menu);
+    if (added.length === 0) return;
+    this.bump(room);
+    this.logger.log(
+      `Room ${roomId} re-seeded: added participant(s) ${added.join(',')}`,
+    );
+  }
+
+  /**
    * 외부 API로부터 전달받은 Announcement 초기 데이터로 룸 시드
    */
   seedFromAnnouncement(roomId: string, dto: AnnouncementRequestDto): void {
-    if (this.rooms.has(roomId)) return;
+    if (this.rooms.has(roomId))
+      return this.mergeParticipants(
+        roomId,
+        dto.participants.map((p) => ({ ...p, username: p.userName })),
+        dto.recentMenu,
+      );
     const room = this.ensureRoom(roomId);
     room.locationInitial = dto.location;
     room.meetingAt = dto.meetingAt;
@@ -464,7 +507,8 @@ export class RoomStoreService
    * 외부 API로부터 전달받은 Invitation 초기 데이터로 룸 시드
    */
   seedFromInvitation(roomId: string, dto: InvitationRequestDto): void {
-    if (this.rooms.has(roomId)) return;
+    if (this.rooms.has(roomId))
+      return this.mergeParticipants(roomId, dto.participants, dto.recentMenu);
     const room = this.ensureRoom(roomId);
     // 참가자 세팅 (invitation: username)
     room.participants = new Map(

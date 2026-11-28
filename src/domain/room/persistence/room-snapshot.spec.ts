@@ -110,6 +110,29 @@ describe('방 상태 스냅샷', () => {
     expect(snap.data.size).toBe(0);
   });
 
+  it('다시 온 시드는 진행 상태를 유지하고 빠진 참가자만 더한다(커밋 전 발행된 완료 이벤트)', () => {
+    const s = makeStore(new MemoryRoomSnapshotStore());
+    const seed = (ids: string[]) =>
+      s.seedFromAnnouncement('announcement:9', {
+        announcementId: '9',
+        location: 'x',
+        meetingAt: 'y',
+        participants: ids.map((u) => ({ userId: u, userName: 'n' + u })),
+        recentMenu: ids.map((u) => ({ userId: u, menu: [] })),
+      } as never);
+    seed(['1', '2']);
+    s.setStage('announcement:9', 'location');
+    s.updateParticipantReadyState('announcement:9', '1', true);
+    seed(['1', '2', '3']);
+    const room = s.getRoom('announcement:9')!;
+    if (room.timeout) clearTimeout(room.timeout);
+    expect(Array.from(room.participants.keys())).toEqual(['1', '2', '3']);
+    expect(room.participants.get('3')!.username).toBe('n3');
+    expect(room.participants.get('1')!.ready).toBe(true);
+    expect(room.stage).toBe('location');
+    expect(s.canJoin('announcement:9', '3')).toBe(true);
+  });
+
   it('REDIS_URL 이 없으면 저장하지 않는다(기존 동작)', () => {
     expect(createRoomSnapshotStore({})).toBeInstanceOf(NoopRoomSnapshotStore);
     expect(
