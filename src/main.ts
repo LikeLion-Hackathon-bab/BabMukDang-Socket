@@ -1,12 +1,17 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './domain/common/http-error.filter';
 import { clientOrigins } from './cors-origins';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  // Spring 과 같은 키가 없으면 방 생성·나가기·결과 저장이 모두 403 이 된다(리뷰 S9). 값은 기록하지 않는다
+  if (!process.env.ROOM_RESULT_KEY?.trim())
+    new Logger('Bootstrap').error(
+      'ROOM_RESULT_KEY 가 비어 있습니다. Spring 과 같은 값을 함께 배포해야 대기실이 만들어집니다.',
+    );
   const configService = app.get(ConfigService);
 
   app.useGlobalFilters(new AllExceptionsFilter());
