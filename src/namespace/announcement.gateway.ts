@@ -165,23 +165,13 @@ export class AnnouncementGateway
           'final-state-response',
           this.roomService.getFinalState(roomId),
         );
-        // 재연결한 화면은 stage-changed 를 받고 준비를 해제한다. 서버도 맞춰서
-        // 화면은 '준비 안 됨'인데 서버만 준비로 세는 상태를 없앤다.
-        const me = this.roomService
-          .getParticipants(roomId)
-          .get(userInfo.userId);
-        if (me?.ready)
-          this.roomService.updateParticipantReadyState(
-            roomId,
-            userInfo.userId,
-            false,
-          );
-        const readyState = {
-          readyCount: this.roomService.getParticipantReadyCount(roomId),
-          participantCount: this.roomService.getParticipantCount(roomId),
-        };
-        if (me?.ready === false) client.emit('ready-state-changed', readyState);
-        else this.server.to(roomId).emit('ready-state-changed', readyState);
+        // 재연결한 화면은 준비를 해제한다. 서버도 맞추고 남은 사람에게 준비 수를 알린다(S4)
+        this.room.syncReadyOnReconnect(
+          this.server,
+          client,
+          roomId,
+          userInfo.userId,
+        );
         // 초기 상태 호출
         this.roomService.getStageState(roomId);
 

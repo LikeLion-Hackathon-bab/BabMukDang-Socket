@@ -162,6 +162,13 @@ export class InvitationGateway
           ),
         });
         client.emit('room-assigned', { roomId: roomId.split(':')[1] });
+        // 공고방과 같이 재접속 때 준비 상태를 맞춘다(S5)
+        this.room.syncReadyOnReconnect(
+          this.server,
+          client,
+          roomId,
+          userInfo.userId,
+        );
         this.roomService.getStageState(roomId);
         // 방 참여 이벤트 발생
         this.server

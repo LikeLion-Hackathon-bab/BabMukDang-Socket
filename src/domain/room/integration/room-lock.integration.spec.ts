@@ -32,7 +32,7 @@ const quiet = {
 };
 type Cand = { id: string; placeName: string };
 
-describe('room lock (S1)', () => {
+describe('room lock (S1, S4)', () => {
   const users = ['11', '12', '13'];
   let app: INestApplication | undefined;
   let clients: QaClient[] = [];
@@ -146,5 +146,30 @@ describe('room lock (S1)', () => {
     } finally {
       await spring.stop();
     }
+  });
+
+  it('S4: 준비했던 사람이 재접속하면 남은 사람에게 줄어든 준비 수가 간다', async () => {
+    const booted = await bootApp(0);
+    app = booted.app;
+    const roomId = `${Date.now() % 100000}8`;
+    await seedAnnouncement(booted.port, roomId, users);
+    clients = users.map((u) => connectUser(booted.port, u, roomId));
+    await Promise.all(clients.map((c) => connected(c)));
+    await allReadyAndAdvance(clients, 'location');
+    clients[0].socket.emit('ready-state', { isReady: true });
+    clients[1].socket.emit('ready-state', { isReady: true });
+    await sleep(300);
+    const since = Date.now();
+    clients[0].socket.disconnect();
+    await sleep(100);
+    clients[0].socket.connect();
+    await connected(clients[0]);
+    await sleep(500);
+    const counts = (c: QaClient) =>
+      c.events
+        .filter((e) => e.ev === 'ready-state-changed' && e.at >= since)
+        .map((e) => (e.args[0] as { readyCount: number }).readyCount);
+    expect(counts(clients[1])).toContain(1);
+    expect(counts(clients[2])).toContain(1);
   });
 });
