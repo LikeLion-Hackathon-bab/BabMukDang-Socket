@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   UseGuards,
-  Get,
   Inject,
   Param,
   Post,
@@ -10,52 +9,29 @@ import {
   HttpCode,
 } from '@nestjs/common';
 import { RoomKeyGuard } from './room-key.guard';
-import { AppService } from './app.service';
-import { ServerService } from './domain/room/services/server.service';
 import { RoomStoreService } from './domain/room/services/room.service';
 import {
   AnnouncementRequestDto,
-  AnnouncementResultRequestDto,
   InvitationRequestDto,
-  InvitationResultRequestDto,
   LeaveRoomDto,
 } from './domain/room/dto/server';
 import { ANNOUNCEMENT_ROOM_STORE } from './namespace/announcement.handlers';
 import { INVITATION_ROOM_STORE } from './namespace/invitation.handlers';
 
+/**
+ * Spring 전용 서버 간 엔드포인트. 모두 X-Room-Key 가 필요하다.
+ * 개발용 GET /(임의 사용자 JWT 발급)와 GET test/* 는 쓰는 곳이 없어 지웠다(보안 리뷰 M1).
+ */
 @Controller()
 @UseGuards(RoomKeyGuard)
 export class AppController {
   constructor(
-    private readonly appService: AppService,
-    private readonly serverService: ServerService,
     @Inject(ANNOUNCEMENT_ROOM_STORE)
     private readonly announcementStore: RoomStoreService,
     @Inject(INVITATION_ROOM_STORE)
     private readonly invitationStore: RoomStoreService,
   ) {}
 
-  @Get()
-  getJWT(
-    @Query('username') username: string,
-    @Query('userId') userId: string,
-  ): string {
-    return this.appService.getJWT(username || 'testuser', userId || '1');
-  }
-  @Get('test/announcement/:announcementId')
-  testGetAnnouncement(
-    @Param('announcementId') announcementId: string,
-    @Body() body: AnnouncementResultRequestDto,
-  ) {
-    return this.serverService.postAnnouncementResult(announcementId, body);
-  }
-  @Get('test/invitation/:invitationId')
-  testGetInvitation(
-    @Param('invitationId') invitationId: string,
-    @Body() body: InvitationResultRequestDto,
-  ) {
-    return this.serverService.postInvitationResult(invitationId, body);
-  }
   @Post('api/announcement/:announcementId')
   setUpAnnouncement(
     @Param('announcementId') announcementId: string,

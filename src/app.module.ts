@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -31,7 +30,6 @@ import { RoomPersistenceModule } from './domain/room/persistence/room-persistenc
   ],
   controllers: [AppController],
   providers: [
-    AppService,
     ServerService,
     { provide: APP_INTERCEPTOR, useClass: WsContextInterceptor },
     { provide: APP_INTERCEPTOR, useClass: WsErrorInterceptor },
