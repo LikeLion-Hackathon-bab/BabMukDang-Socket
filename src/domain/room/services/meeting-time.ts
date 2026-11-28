@@ -54,3 +54,24 @@ export function toKstMeeting(
     meetingDate = kstParts(Date.parse(time)).date;
   return { meetingDate, meetingTime };
 }
+
+/** 확정 날짜·시간 → Spring 에 보낼 오프셋 포함 시각 (KST +09:00). 만들 수 없으면 '' */
+export function toKstOffsetDateTime(
+  date: string | undefined,
+  time: string | undefined,
+): string {
+  const { meetingDate, meetingTime } = toKstMeeting(date, time);
+  if (!meetingDate || !meetingTime) return '';
+  return `${meetingDate}T${meetingTime}:00+09:00`;
+}
+
+/** Spring 이 돌려준 저장 시각 → 화면 형식 날짜('YY. MM. DD')와 시간('HH:mm') */
+export function fromOffsetDateTime(
+  iso: string,
+): { date: string; time: string } | undefined {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return undefined;
+  const { date, time } = kstParts(ms);
+  const [y, m, d] = date.split('-');
+  return { date: `${y.slice(2)}. ${m}. ${d}`, time };
+}

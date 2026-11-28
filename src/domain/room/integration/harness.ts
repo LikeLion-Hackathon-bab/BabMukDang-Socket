@@ -128,33 +128,94 @@ export async function connected(c: QaClient, timeoutMs = 5000): Promise<void> {
 
 /** 가짜 Spring: POST /api/v1/meetings/:id/result 를 기록하고 지연·실패를 흉내 낸다 */
 export class FakeSpring {
+  /** 공고: POST /api/v1/meetings/:id/result  (contracts/meeting-result.md) */
   calls: Array<{ id: string; restaurant: string; at: number }> = [];
   stored = new Map<string, string>();
+  /** 초대: POST /api/v1/meetings/invitations/:id/result (contracts/invitation-result.md) */
+  invitationCalls: Array<{
+    id: string;
+    body: Record<string, unknown>;
+    at: number;
+  }> = [];
+  invitationStored = new Map<
+    string,
+    { meetingAt: string; location: string; restaurant: string }
+  >();
+  acceptedInvitations = new Set<string>(['3']);
   delayMs = 0;
   failNext = 0;
   private server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c: Buffer) => (body += c.toString()));
     req.on('end', () => {
-      const m = /^\/api\/v1\/meetings\/([^/]+)\/result$/.exec(req.url ?? '');
-      if (!m || req.headers['x-room-key'] !== QA_ENV.ROOM_RESULT_KEY) {
-        res.statusCode = 403;
-        return res.end();
-      }
-      const { restaurant } = JSON.parse(body || '{}') as {
-        restaurant: string;
+      const json = (status: number, payload?: unknown) => {
+        res.statusCode = status;
+        if (payload) res.setHeader('content-type', 'application/json');
+        res.end(payload ? JSON.stringify(payload) : undefined);
       };
-      this.calls.push({ id: m[1], restaurant, at: Date.now() });
+      if (req.headers['x-room-key'] !== QA_ENV.ROOM_RESULT_KEY)
+        return json(403);
+      const parsed = JSON.parse(body || '{}') as Record<string, unknown>;
+      const inv = /^\/api\/v1\/meetings\/invitations\/(\d+)\/result$/.exec(
+        req.url ?? '',
+      );
+      const ann = /^\/api\/v1\/meetings\/(\d+)\/result$/.exec(req.url ?? '');
+      if (inv)
+        this.invitationCalls.push({ id: inv[1], body: parsed, at: Date.now() });
+      else if (ann)
+        this.calls.push({
+          id: ann[1],
+          restaurant: String(parsed.restaurant),
+          at: Date.now(),
+        });
+      else return json(404);
       setTimeout(() => {
         if (this.failNext > 0) {
           this.failNext -= 1;
-          res.statusCode = 503;
-          return res.end();
+          return json(503);
         }
-        // Spring MeetingRepository.record: insert ... on duplicate key update (첫 값 유지)
-        if (!this.stored.has(m[1])) this.stored.set(m[1], restaurant);
-        res.statusCode = this.stored.get(m[1]) === restaurant ? 204 : 409;
-        res.end();
+        if (ann) {
+          // Spring MeetingRepository.record: insert ... on duplicate key update (첫 값 유지)
+          const restaurant = String(parsed.restaurant);
+          if (!this.stored.has(ann[1])) this.stored.set(ann[1], restaurant);
+          const saved = this.stored.get(ann[1])!;
+          return saved === restaurant
+            ? json(204)
+            : json(409, {
+                code: 'HTTP_409',
+                message: '이미 다른 식당으로 확정된 공고입니다.',
+                data: { restaurant: saved },
+              });
+        }
+        const id = inv![1];
+        if (!this.acceptedInvitations.has(id))
+          return json(409, {
+            code: 'HTTP_409',
+            message: '수락된 초대가 아닙니다.',
+          });
+        const { meetingAt, location, restaurant, invitationId } =
+          parsed as Record<string, string>;
+        if (
+          !/[+-]\d{2}:\d{2}$|Z$/.test(String(meetingAt)) ||
+          !location ||
+          !restaurant ||
+          (invitationId !== undefined && String(invitationId) !== id)
+        )
+          return json(400, { code: 'HTTP_400' });
+        const next = { meetingAt, location, restaurant };
+        if (!this.invitationStored.has(id)) this.invitationStored.set(id, next);
+        const saved = this.invitationStored.get(id)!;
+        const same =
+          Date.parse(saved.meetingAt) === Date.parse(meetingAt) &&
+          saved.location === location &&
+          saved.restaurant === restaurant;
+        return same
+          ? json(204)
+          : json(409, {
+              code: 'HTTP_409',
+              message: '이미 다른 결과로 확정된 초대입니다.',
+              data: saved,
+            });
       }, this.delayMs);
     });
   });

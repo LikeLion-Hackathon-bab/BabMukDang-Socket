@@ -13,7 +13,11 @@ import {
 import { ReadyStateDto } from '../dto/request.dto';
 import { FinalState } from '../types/room.type';
 import { ServerService } from '../services/server.service';
-import { toKstMeeting } from '../services/meeting-time';
+import {
+  fromOffsetDateTime,
+  toKstOffsetDateTime,
+} from '../services/meeting-time';
+import type { Restaurant } from 'src/domain/restaurant/types/restaurant.type';
 
 @Injectable()
 export class RoomHandlers {
@@ -91,23 +95,52 @@ export class RoomHandlers {
   }
   // 자동 단계 진행: 모든 참여자가 준비 완료 시 다음 단계로 이동
   handleAutoProgressAnnouncement(server: Server) {
+    this.handleAutoProgress(
+      server,
+      'announcement:',
+      AnnouncementStageMap,
+      (roomId) => this.persistAnnouncementResult(server, roomId),
+    );
+  }
+
+  handleAutoProgressInvitation(server: Server) {
+    this.handleAutoProgress(
+      server,
+      'invitation:',
+      InvitationStageMap,
+      (roomId) => this.persistInvitationResult(server, roomId),
+    );
+  }
+
+  /**
+   * 공고·초대 공통 단계 진행.
+   * - 늦게 온(이미 지난 단계의) 완료와, Spring 저장을 기다리는 동안 겹친 완료는 무시한다.
+   * - finish 로 넘어가기 전에 Spring 저장을 await 한다. 실패하면 단계를 넘기지 않고
+   *   meeting-save-failed 를 보내며 준비를 풀어 다시 시도하게 한다.
+   * - finish 단계에서 모두 준비하면 meeting-saved 후 방을 지운다.
+   */
+  private handleAutoProgress<S extends string>(
+    server: Server,
+    prefix: string,
+    stageMap: Record<S, number>,
+    persist: (roomId: string) => Promise<void>,
+  ) {
     const emitter = this.roomService.getEventEmitter();
+    const finalStageNum = Math.max(...Object.values<number>(stageMap));
     const progress = async ({
       roomId,
       stage,
     }: {
       roomId: string;
-      stage: AnnouncementStage;
+      stage: S;
     }) => {
-      if (!roomId.startsWith('announcement:')) return;
-      // 늦게 도착한 같은 단계의 완료(이미 다음 단계로 넘어감)는 무시
+      if (!roomId.startsWith(prefix)) return;
       if (this.roomService.getStage(roomId) !== stage) {
         this.logger.log(
           `Ignored stale completion for room ${roomId} (stage ${stage})`,
         );
         return;
       }
-      // Spring 저장을 기다리는 동안 같은 완료가 다시 와도 한 번만 처리
       if (!this.roomService.beginTransition(roomId)) {
         this.logger.log(
           `Ignored duplicate completion for room ${roomId} (stage ${stage})`,
@@ -115,32 +148,19 @@ export class RoomHandlers {
         return;
       }
       try {
-        const current = AnnouncementStageMap[stage];
-        // TODO: 동점 처리 로직 고려 (예: 특정 도메인의 투표 결과가 동점인 경우 재투표/타이브레이커)
-        const next = current + 1;
-        const nextStage = Object.entries(AnnouncementStageMap).find(
-          (entry) => entry[1] === next,
-        )?.[0] as AnnouncementStage;
+        const current = stageMap[stage];
+        const nextStage = (Object.entries(stageMap) as [S, number][]).find(
+          (entry) => entry[1] === current + 1,
+        )?.[0];
 
-        if (current < 7) {
-          if (nextStage === 'finish') {
-            const restaurant =
-              this.roomService.getFinalState(roomId)?.restaurant?.name;
-            if (!restaurant)
-              throw new Error('A confirmed restaurant is required');
-            await this.serverService.saveConfirmedRestaurant(
-              roomId.slice('announcement:'.length),
-              restaurant,
-            );
-          }
-          this.roomService.setStage(roomId, nextStage);
-          emitter.emit('request-initial-state', {
+        if (current < finalStageNum && nextStage) {
+          if (nextStage === 'finish') await persist(roomId);
+          this.roomService.setStage(
             roomId,
-            stage: nextStage,
-          });
-          // 다음 단계로 넘어갈 때 준비 상태 초기화
+            nextStage as unknown as AnnouncementStage | InvitationStage,
+          );
+          emitter.emit('request-initial-state', { roomId, stage: nextStage });
           this.roomService.resetParticipantsReadyState(roomId);
-          // 클라이언트에게 단계 변경 및 참여자 상태 방송 (정확한 네임스페이스 서버 사용)
           server.to(roomId).emit('stage-changed', {
             stage: nextStage,
             updatedAt: Date.now(),
@@ -149,10 +169,12 @@ export class RoomHandlers {
             readyCount: this.roomService.getParticipantReadyCount(roomId),
             participantCount: this.roomService.getParticipantCount(roomId),
           });
-          const participants = Array.from(
-            this.roomService.getParticipants(roomId).values(),
-          );
-          server.to(roomId).emit('participants', participants);
+          server
+            .to(roomId)
+            .emit(
+              'participants',
+              Array.from(this.roomService.getParticipants(roomId).values()),
+            );
           this.logger.log(
             `Room ${roomId} auto-progressed from stage ${current} to ${nextStage}`,
           );
@@ -164,6 +186,10 @@ export class RoomHandlers {
       } catch (error) {
         this.roomService.resetParticipantsReadyState(roomId);
         server.to(roomId).emit('meeting-save-failed');
+        server.to(roomId).emit('ready-state-changed', {
+          readyCount: 0,
+          participantCount: this.roomService.getParticipantCount(roomId),
+        });
         const errorMessage =
           error instanceof Error ? error.message : 'Unknown error';
         this.logger.error(
@@ -175,88 +201,86 @@ export class RoomHandlers {
     };
     emitter.on(
       'ready-state-completed',
-      (event: { roomId: string; stage: AnnouncementStage }) => {
+      (event: { roomId: string; stage: S }) => {
         void progress(event);
       },
     );
   }
-  handleAutoProgressInvitation(server: Server) {
-    const emitter = this.roomService.getEventEmitter();
-    emitter.on(
-      'ready-state-completed',
-      ({
-        roomId,
-        stage,
-      }: {
-        roomId: string;
-        stage: AnnouncementStage | InvitationStage;
-      }) => {
-        if (!roomId.startsWith('invitation:')) return;
-        if (this.roomService.getStage(roomId) !== stage) return;
-        try {
-          const current = InvitationStageMap[stage];
-          // TODO: 동점 처리 로직 고려 (예: 특정 도메인의 투표 결과가 동점인 경우 재투표/타이브레이커)
-          const next = current + 1;
-          const nextStage = Object.entries(InvitationStageMap).find(
-            (entry) => entry[1] === next,
-          )?.[0] as InvitationStage;
 
-          if (current < 9) {
-            this.roomService.setStage(roomId, nextStage);
-            emitter.emit('request-initial-state', {
-              roomId,
-              stage: nextStage,
-            });
-            // 다음 단계로 넘어갈 때 준비 상태 초기화
-            this.roomService.resetParticipantsReadyState(roomId);
-            // 클라이언트에게 단계 변경 및 참여자 상태 방송 (정확한 네임스페이스 서버 사용)
-            server.to(roomId).emit('stage-changed', {
-              stage: nextStage,
-              updatedAt: Date.now(),
-            });
-            server.to(roomId).emit('ready-state-changed', {
-              readyCount: this.roomService.getParticipantReadyCount(roomId),
-              participantCount: this.roomService.getParticipantCount(roomId),
-            });
-            const participants = Array.from(
-              this.roomService.getParticipants(roomId).values(),
-            );
-            server.to(roomId).emit('participants', participants);
-            this.logger.log(
-              `Room ${roomId} auto-progressed from stage ${current} to ${nextStage}`,
-            );
-          } else {
-            // 최종 단계에서는 추가 진행 없음. 필요 시 완료 이벤트 방송 가능
-            this.logger.log(`Room ${roomId} already at final stage ${current}`);
-            const finalState = this.roomService.getFinalState(roomId);
-            // 벽시계 값('YY. MM. DD', 'HH:mm–HH:mm')을 UTC 로 옮기지 않고 KST 그대로 보낸다
-            const { meetingDate, meetingTime } = toKstMeeting(
-              finalState?.date,
-              finalState?.time,
-            );
-            void this.serverService.postInvitationResult(roomId, {
-              location: finalState?.location?.placeName ?? '',
-              meetingDate,
-              meetingTime,
-              author: {
-                // participants 는 Map 이다(배열 인덱스로 읽으면 항상 빈 값)
-                name:
-                  Array.from(
-                    this.roomService.getRoom(roomId)?.participants?.values() ??
-                      [],
-                  )[0]?.username ?? '',
-              },
-            });
-            this.roomService.deleteRoom(roomId);
-          }
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : 'Unknown error';
-          this.logger.error(
-            `Failed to auto progress stage for room ${roomId}: ${errorMessage}`,
-          );
-        }
-      },
+  /** Spring 이 이미 다른 값으로 확정했다고 하면(409 data) 그 값을 방 확정값으로 맞춘다 */
+  private adoptRestaurant(final: FinalState, name: string): boolean {
+    const current = final.restaurant as
+      | (Restaurant & { place_name?: string })
+      | undefined;
+    if (current?.name === name) return false;
+    final.restaurant = {
+      ...(current ?? { id: '', lat: 0, lng: 0 }),
+      name,
+      place_name: name, // 화면은 place_name 으로 표시한다
+    } as unknown as Restaurant;
+    return true;
+  }
+
+  private async persistAnnouncementResult(server: Server, roomId: string) {
+    const final = this.roomService.getFinalState(roomId);
+    const restaurant = final?.restaurant?.name;
+    if (!final || !restaurant)
+      throw new Error('A confirmed restaurant is required');
+    const stored = await this.serverService.saveConfirmedRestaurant(
+      roomId.slice('announcement:'.length),
+      restaurant,
     );
+    if (stored?.restaurant && this.adoptRestaurant(final, stored.restaurant)) {
+      this.logger.log(
+        `Room ${roomId} adopted stored restaurant from Spring (409)`,
+      );
+      server
+        .to(roomId)
+        .emit('final-state-response', { roomId, finalState: final });
+    }
+  }
+
+  private async persistInvitationResult(server: Server, roomId: string) {
+    const id = roomId.slice('invitation:'.length);
+    if (!/^\d+$/.test(id)) throw new Error(`Invalid invitation id ${id}`);
+    const final = this.roomService.getFinalState(roomId);
+    const meetingAt = toKstOffsetDateTime(final?.date, final?.time);
+    const location = final?.location?.placeName;
+    const restaurant = final?.restaurant?.name;
+    if (!final || !meetingAt || !location || !restaurant)
+      throw new Error(
+        `Invitation result is incomplete (meetingAt=${meetingAt}, location=${location}, restaurant=${restaurant})`,
+      );
+    const stored = await this.serverService.saveInvitationResult(id, {
+      meetingAt,
+      location,
+      restaurant,
+    });
+    if (!stored) return;
+    let changed = false;
+    if (stored.restaurant)
+      changed = this.adoptRestaurant(final, stored.restaurant) || changed;
+    if (
+      stored.location &&
+      final.location &&
+      final.location.placeName !== stored.location
+    ) {
+      final.location = { ...final.location, placeName: stored.location };
+      changed = true;
+    }
+    const when = stored.meetingAt
+      ? fromOffsetDateTime(stored.meetingAt)
+      : undefined;
+    if (when && stored.meetingAt !== meetingAt) {
+      final.date = when.date;
+      final.time = when.time;
+      changed = true;
+    }
+    if (changed) {
+      this.logger.log(`Room ${roomId} adopted stored result from Spring (409)`);
+      server
+        .to(roomId)
+        .emit('final-state-response', { roomId, finalState: final });
+    }
   }
 }
