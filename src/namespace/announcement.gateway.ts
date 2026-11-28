@@ -264,6 +264,7 @@ export class AnnouncementGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     return this.location.handleAddLocationCandidate(
       client,
       payload,
@@ -278,6 +279,7 @@ export class AnnouncementGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     return this.location.handleRemoveLocationCandidate(
       client,
       payload,
@@ -295,6 +297,7 @@ export class AnnouncementGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     return this.location.handleVoteLocation(client, payload, roomId, userInfo);
   }
 
@@ -306,6 +309,7 @@ export class AnnouncementGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     return this.excludeMenu.handleExcludeMenu(
       client,
       payload,
@@ -322,6 +326,7 @@ export class AnnouncementGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     return this.menu.handlePickMenu(client, payload, roomId, userInfo);
   }
 
@@ -333,6 +338,7 @@ export class AnnouncementGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     return this.restaurant.handlePickRestaurant(
       client,
       payload,

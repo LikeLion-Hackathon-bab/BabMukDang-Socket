@@ -50,11 +50,19 @@ export class RoomHandlers {
   ) {
     const { isReady } = payload;
 
-    this.roomService.updateParticipantReadyState(
+    const accepted = this.roomService.updateParticipantReadyState(
       roomId,
       userInfo.userId,
       isReady,
     );
+    if (!accepted) {
+      // 저장 대기 중이라 바꾸지 않았다. 보낸 사람 화면을 서버 상태로 되돌린다.
+      client.emit('ready-state-changed', {
+        readyCount: this.roomService.getParticipantReadyCount(roomId),
+        participantCount: this.roomService.getParticipantCount(roomId),
+      });
+      return;
+    }
     this.logger.log(
       `User ${userInfo.userId} ready state changed to ${isReady} in room ${roomId}`,
     );
@@ -73,6 +81,44 @@ export class RoomHandlers {
     //   timestamp: Date.now(),
     // });
   }
+  /**
+   * 카운트다운·단계 전이 중에는 표·선택 변경을 받지 않는다(S1).
+   * 거부했으면 true. 보낸 사람이 화면을 서버 상태로 되돌릴 수 있게 현재 단계 상태를 다시 보낸다.
+   */
+  rejectIfLocked(client: Socket, roomId: string): boolean {
+    if (!this.roomService.isLocked(roomId)) return false;
+    this.logger.log(
+      `Rejected change from ${client.id} in locked room ${roomId}`,
+    );
+    this.roomService.getStageState(roomId);
+    const final = this.roomService.getFinalState(roomId);
+    if (final)
+      client.emit('final-state-response', { roomId, finalState: final });
+    return true;
+  }
+
+  /**
+   * 재접속한 화면은 stage-changed 를 받고 준비를 해제한다. 서버도 맞추고,
+   * 준비였던 사람이면 남은 사람들의 준비 수도 갱신한다(S4·S5).
+   */
+  syncReadyOnReconnect(
+    server: Server,
+    client: Socket,
+    roomId: string,
+    userId: string,
+  ) {
+    const me = this.roomService.getParticipants(roomId).get(userId);
+    const wasReady = me?.ready === true;
+    if (wasReady)
+      this.roomService.updateParticipantReadyState(roomId, userId, false);
+    const readyState = {
+      readyCount: this.roomService.getParticipantReadyCount(roomId),
+      participantCount: this.roomService.getParticipantCount(roomId),
+    };
+    if (wasReady) server.to(roomId).emit('ready-state-changed', readyState);
+    else client.emit('ready-state-changed', readyState);
+  }
+
   /** 참여 취소·방 해산을 방에 알린다 (contracts/room-leave-events.md) */
   handleRoomLifecycle(server: Server) {
     const emitter = this.roomService.getEventEmitter();
@@ -198,8 +244,11 @@ export class RoomHandlers {
         );
         return;
       }
+      const room = this.roomService.getRoom(roomId);
       try {
         const current = stageMap[stage];
+        // 판정과 확정값이 같은 시점의 표를 보도록 지금 다시 계산한다(S1)
+        emitter.emit('request-final-state', { roomId, stage });
         const nextStage = (Object.entries(stageMap) as [S, number][]).find(
           (entry) => entry[1] === current + 1,
         )?.[0];
@@ -214,7 +263,11 @@ export class RoomHandlers {
           return;
         }
         if (current < finalStageNum && nextStage) {
-          if (nextStage === 'finish') await persist(roomId);
+          if (nextStage === 'finish') {
+            await persist(roomId);
+            // 저장을 기다리는 동안 방이 해산·재생성됐으면 새 방을 건드리지 않는다(S14)
+            if (this.roomService.getRoom(roomId) !== room) return;
+          }
           this.roomService.setStage(
             roomId,
             nextStage as unknown as AnnouncementStage | InvitationStage,
@@ -244,6 +297,7 @@ export class RoomHandlers {
           this.roomService.deleteRoom(roomId);
         }
       } catch (error) {
+        if (this.roomService.getRoom(roomId) !== room) return;
         if (error instanceof RoomClosedError) {
           // 공고가 다시 모집 중이거나 초대가 취소됨: 확정이 아니므로 방을 닫는다
           this.logger.log(`Room ${roomId} closed by Spring: ${error.message}`);
@@ -262,7 +316,8 @@ export class RoomHandlers {
           `Failed to auto progress stage for room ${roomId}: ${errorMessage}`,
         );
       } finally {
-        this.roomService.endTransition(roomId);
+        if (this.roomService.getRoom(roomId) === room)
+          this.roomService.endTransition(roomId);
       }
     };
     emitter.on(
@@ -329,14 +384,22 @@ export class RoomHandlers {
     const restaurant = final?.restaurant?.name;
     if (!final || !restaurant)
       throw new Error('A confirmed restaurant is required');
+    const sent = structuredClone(final.restaurant);
     const stored = await this.serverService.saveConfirmedRestaurant(
       roomId.slice('announcement:'.length),
       restaurant,
     );
+    // 보낸 값으로 고정한다. 기다리는 동안 바뀌었으면 Spring 에 저장된 값으로 되돌려 알린다(S1)
+    const drifted = JSON.stringify(final.restaurant) !== JSON.stringify(sent);
+    final.restaurant = sent;
     if (stored?.restaurant && this.adoptRestaurant(final, stored.restaurant)) {
       this.logger.log(
         `Room ${roomId} adopted stored restaurant from Spring (409)`,
       );
+      server
+        .to(roomId)
+        .emit('final-state-response', { roomId, finalState: final });
+    } else if (drifted) {
       server
         .to(roomId)
         .emit('final-state-response', { roomId, finalState: final });
@@ -354,13 +417,33 @@ export class RoomHandlers {
       throw new Error(
         `Invitation result is incomplete (meetingAt=${meetingAt}, location=${location}, restaurant=${restaurant})`,
       );
+    const sent = structuredClone({
+      date: final.date,
+      time: final.time,
+      location: final.location,
+      restaurant: final.restaurant,
+    });
     const stored = await this.serverService.saveInvitationResult(id, {
       meetingAt,
       location,
       restaurant,
     });
-    if (!stored) return;
-    let changed = false;
+    // 보낸 값으로 고정한다(S1)
+    let changed =
+      JSON.stringify({
+        date: final.date,
+        time: final.time,
+        location: final.location,
+        restaurant: final.restaurant,
+      }) !== JSON.stringify(sent);
+    Object.assign(final, sent);
+    if (!stored) {
+      if (changed)
+        server
+          .to(roomId)
+          .emit('final-state-response', { roomId, finalState: final });
+      return;
+    }
     if (stored.restaurant)
       changed = this.adoptRestaurant(final, stored.restaurant) || changed;
     if (

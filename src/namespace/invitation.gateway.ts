@@ -232,6 +232,7 @@ export class InvitationGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     this.date.handlePickDates(client, payload, roomId, userInfo);
   }
 
@@ -243,6 +244,7 @@ export class InvitationGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     this.time.handlePickTimes(client, payload, roomId, userInfo);
   }
   @SubscribeMessage('chat-message')
@@ -263,6 +265,7 @@ export class InvitationGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     return this.location.handleAddLocationCandidate(
       client,
       payload,
@@ -277,6 +280,7 @@ export class InvitationGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     return this.location.handleRemoveLocationCandidate(
       client,
       payload,
@@ -294,6 +298,7 @@ export class InvitationGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     return this.location.handleVoteLocation(client, payload, roomId, userInfo);
   }
 
@@ -305,6 +310,7 @@ export class InvitationGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     return this.excludeMenu.handleExcludeMenu(
       client,
       payload,
@@ -321,6 +327,7 @@ export class InvitationGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     return this.menu.handlePickMenu(client, payload, roomId, userInfo);
   }
 
@@ -332,6 +339,7 @@ export class InvitationGateway
     @WsRoom() roomId: string,
     @WsUser() userInfo: UserInfo,
   ) {
+    if (this.room.rejectIfLocked(client, roomId)) return;
     return this.restaurant.handlePickRestaurant(
       client,
       payload,

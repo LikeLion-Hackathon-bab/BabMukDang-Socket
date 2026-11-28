@@ -118,6 +118,23 @@ export class RoomStoreService
     this.transitioning.delete(roomId);
   }
 
+  isTransitioning(roomId: Id): boolean {
+    return this.transitioning.has(roomId);
+  }
+
+  /** 전원 준비 뒤 3초 카운트다운 중 */
+  isCountingDown(roomId: Id): boolean {
+    return this.rooms.get(roomId)?.timeout !== undefined;
+  }
+
+  /**
+   * 확정값을 계산한 뒤(카운트다운)부터 다음 단계로 넘어갈 때까지(Spring 저장 대기 포함)는
+   * 표·선택을 바꾸지 못하게 한다. 판정·확정·저장이 같은 표를 보게 하기 위해서다.
+   */
+  isLocked(roomId: Id): boolean {
+    return this.isTransitioning(roomId) || this.isCountingDown(roomId);
+  }
+
   /**
    * 방 생성 또는 기존 방 반환
    */
@@ -318,14 +335,17 @@ export class RoomStoreService
     roomId: string,
     userId: string,
     isReady: boolean,
-  ): void {
+  ): boolean {
     const room = this.rooms.get(roomId);
-    if (!room) return;
+    if (!room) return false;
+    // 단계 전이(Spring 저장 대기) 중에는 준비를 바꿀 수 없다. 카운트다운 중 준비 해제는 허용한다(취소).
+    if (this.transitioning.has(roomId)) return false;
+    const participant = room.participants.get(userId);
+    if (!participant) return false;
     if (room.timeout) {
       clearTimeout(room.timeout);
+      room.timeout = undefined;
     }
-    const participant = room.participants.get(userId);
-    if (!participant) return;
     participant.ready = isReady;
     this.bump(room);
     const readyCount = this.getParticipantReadyCount(roomId);
@@ -336,6 +356,7 @@ export class RoomStoreService
         stage: room.stage,
       });
       room.timeout = setTimeout(() => {
+        room.timeout = undefined;
         const afterReadyCount = this.getParticipantReadyCount(roomId);
         if (afterReadyCount === room.participants.size) {
           this.eventEmitter.emit('ready-state-completed', {
@@ -345,6 +366,7 @@ export class RoomStoreService
         }
       }, 3000);
     }
+    return true;
   }
 
   /**
