@@ -363,11 +363,8 @@ export class RoomStoreService {
    * 외부 API로부터 전달받은 Invitation 초기 데이터로 룸 시드
    */
   seedFromInvitation(roomId: string, dto: InvitationRequestDto): void {
-    let room = this.rooms.get(roomId);
-    if (!room) {
-      room = this.ensureRoom(roomId);
-      this.rooms.set(roomId, room);
-    }
+    if (this.rooms.has(roomId)) return;
+    const room = this.ensureRoom(roomId);
     // 참가자 세팅 (invitation: username)
     room.participants = new Map(
       dto.participants.map((p) => [
