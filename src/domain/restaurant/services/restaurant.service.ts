@@ -5,6 +5,10 @@ import { RoomStoreService } from 'src/domain/room/services/room.service';
 import { AnnouncementStage } from 'src/domain/common/types/stage';
 import { InvitationStage } from 'src/domain/common/types/stage';
 
+type RestaurantSearchResult = {
+  documents: Array<{ id: string; place_name: string; x: string; y: string }>;
+};
+
 @Injectable()
 export class RestaurantService extends BaseService<RestaurantStore> {
   private readonly logger = new Logger(RestaurantService.name);
@@ -31,17 +35,27 @@ export class RestaurantService extends BaseService<RestaurantStore> {
         });
       },
     );
-    eventEmitter.on('request-initial-state', async ({ roomId, stage }) => {
-      if (stage !== 'restaurant') return;
-      eventEmitter.emit('initial-state-response', {
-        roomId,
-        stage: 'restaurant',
-        initialState: {
-          ...(await this.getStepState(roomId)),
-          restaurantUserList: this.getRestaurantUserListSerialized(roomId),
-        },
-      });
-    });
+    eventEmitter.on(
+      'request-initial-state',
+      ({ roomId, stage }: { roomId: string; stage: string }) => {
+        if (stage !== 'restaurant') return;
+        void this.getStepState(roomId)
+          .then((initialState) => {
+            eventEmitter.emit('initial-state-response', {
+              roomId,
+              stage,
+              initialState: {
+                ...initialState,
+                restaurantUserList:
+                  this.getRestaurantUserListSerialized(roomId),
+              },
+            });
+          })
+          .catch((error: unknown) =>
+            this.logger.error('Failed to load restaurant choices', error),
+          );
+      },
+    );
   }
   async getStepState(roomId: string): Promise<RestaurantStore | undefined> {
     const room = this.roomStore.getRoom(roomId);
@@ -97,7 +111,6 @@ export class RestaurantService extends BaseService<RestaurantStore> {
   validateTransition(
     roomId: string,
     fromStage: AnnouncementStage | InvitationStage,
-    toStage: AnnouncementStage | InvitationStage,
   ): boolean {
     if (fromStage !== 'restaurant') return false;
     return true;
@@ -107,7 +120,7 @@ export class RestaurantService extends BaseService<RestaurantStore> {
     if (!room || room.stage !== 'restaurant') return false;
     return true;
   }
-  validateBusinessRules(roomId: string, action: string, payload: any): boolean {
+  validateBusinessRules(): boolean {
     return true;
   }
 
@@ -123,9 +136,14 @@ export class RestaurantService extends BaseService<RestaurantStore> {
       menuLabel,
       latitude,
       longitude,
-    ).then((res) => res.documents.map((place: {id: string; place_name: string; x: string; y: string}) => ({
-      ...place, name: place.place_name, lat: Number(place.y), lng: Number(place.x),
-    })));
+    ).then((res) =>
+      res.documents.map((place) => ({
+        ...place,
+        name: place.place_name,
+        lat: Number(place.y),
+        lng: Number(place.x),
+      })),
+    );
     return {
       initialRestaurants,
       restaurantUserList: new Map(),
@@ -137,37 +155,34 @@ export class RestaurantService extends BaseService<RestaurantStore> {
     latitude?: number,
     longitude?: number,
     address?: string,
-  ): Promise<any> {
-    const url = new URL('/v2/local/search/keyword', process.env.KAKAO_LOCAL_BASE_URL ?? 'https://dapi.kakao.com').toString();
+  ): Promise<RestaurantSearchResult> {
+    const url = new URL(
+      '/v2/local/search/keyword',
+      process.env.KAKAO_LOCAL_BASE_URL ?? 'https://dapi.kakao.com',
+    ).toString();
     const headers = {
       Authorization: `KakaoAK ${process.env.KAKAO_REST_KEY}`,
     };
 
-    const query: any = {
+    const query: Record<string, string> = {
       query: menuLabel || '',
       category_group_code: 'FD6',
-      radius: 10000,
+      radius: '10000',
       sort: 'accuracy',
     };
     if (latitude && longitude) {
-      query.x = longitude;
-      query.y = latitude;
+      query.x = String(longitude);
+      query.y = String(latitude);
     }
     if (address) {
       query.address = address;
     }
-    try {
-      const response = await fetch(
-        `${url}?${new URLSearchParams(Object.entries(query))}`,
-        {
-          method: 'GET',
-          headers,
-        },
-      ).then((res) => res.json());
-      return response;
-    } catch (error) {
-      console.error(error);
-    }
+    const response = await fetch(`${url}?${new URLSearchParams(query)}`, {
+      headers,
+    });
+    if (!response.ok)
+      throw new Error(`Restaurant search failed (${response.status})`);
+    return response.json() as Promise<RestaurantSearchResult>;
   }
 
   /**
@@ -313,7 +328,7 @@ export class RestaurantService extends BaseService<RestaurantStore> {
     if (!room) return undefined;
 
     const votes = new Map<string, number>();
-    state.restaurantUserList.forEach((restaurantId, userId) => {
+    state.restaurantUserList.forEach((restaurantId) => {
       votes.set(restaurantId, (votes.get(restaurantId) || 0) + 1);
     });
     const maxVotesRestaurantId = Array.from(votes.entries()).reduce(

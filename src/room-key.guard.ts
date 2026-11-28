@@ -10,6 +10,8 @@ export class RoomKeyGuard implements CanActivate {
     if (!configured || !key) return false;
     const expected = Buffer.from(configured);
     const received = Buffer.from(key);
-    return expected.length === received.length && timingSafeEqual(expected, received);
+    return (
+      expected.length === received.length && timingSafeEqual(expected, received)
+    );
   }
 }

@@ -17,23 +17,36 @@ describe('announcement restaurant confirmation', () => {
     };
     const save = jest.fn();
     const emit = jest.fn();
-    const handlers = new RoomHandlers({log: jest.fn(), error: jest.fn()} as never, room as never,
-      {saveConfirmedRestaurant: save} as never);
-    handlers.handleAutoProgressAnnouncement({to: () => ({emit})} as unknown as Server);
-    return {room, save, emit, finish: async () => {
-      emitter.emit('ready-state-completed', {roomId: 'announcement:12', stage: 'restaurant'});
-      await new Promise<void>(resolve => setImmediate(resolve));
-    }};
+    const handlers = new RoomHandlers(
+      { log: jest.fn(), error: jest.fn() } as never,
+      room as never,
+      { saveConfirmedRestaurant: save } as never,
+    );
+    handlers.handleAutoProgressAnnouncement({
+      to: () => ({ emit }),
+    } as unknown as Server);
+    return {
+      room,
+      save,
+      emit,
+      finish: async () => {
+        emitter.emit('ready-state-completed', {
+          roomId: 'announcement:12',
+          stage: 'restaurant',
+        });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      },
+    };
   }
   it('acknowledges storage before displaying finish', async () => {
-    const {save, room, finish} = setup();
+    const { save, room, finish } = setup();
     save.mockResolvedValue(undefined);
     await finish();
     expect(save).toHaveBeenCalledWith('12', '초밥집');
     expect(room.setStage).toHaveBeenCalledWith('announcement:12', 'finish');
   });
   it('keeps the voting room available after a failed write', async () => {
-    const {save, room, emit, finish} = setup();
+    const { save, room, emit, finish } = setup();
     save.mockRejectedValue(new Error('offline'));
     await finish();
     expect(room.setStage).not.toHaveBeenCalled();

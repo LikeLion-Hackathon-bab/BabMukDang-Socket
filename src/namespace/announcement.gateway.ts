@@ -168,10 +168,12 @@ export class AnnouncementGateway
         this.roomService.getStageState(roomId);
 
         // 방 참여 이벤트 발생
-        client.to(roomId).emit(
-          'join-room',
-          Array.from(this.roomService.getParticipants(roomId).values()),
-        );
+        client
+          .to(roomId)
+          .emit(
+            'join-room',
+            Array.from(this.roomService.getParticipants(roomId).values()),
+          );
         const bound = this.logger.bind({
           ns: client.nsp?.name,
           event: 'connection',
