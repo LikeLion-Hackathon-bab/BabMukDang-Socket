@@ -38,7 +38,12 @@ export class RoomStoreService
   /** 단계 전이(특히 Spring 저장 대기) 중인 방. 같은 완료가 겹쳐 와도 한 번만 처리 */
   private readonly transitioning = new Set<Id>();
   private readonly dirty = new Set<Id>();
+  /** 지워야 하는데 Redis 삭제가 실패한 방. 다시 시도한다(리뷰 S3) */
+  private readonly pendingRemovals = new Set<Id>();
+  private retryTimer?: NodeJS.Timeout;
   private flushScheduled = false;
+  /** 저장·삭제 실패 뒤 다시 시도하는 간격 */
+  snapshotRetryMs = 2000;
   isInvitation: boolean;
   constructor(
     private readonly logger: WsLogger,
@@ -70,6 +75,11 @@ export class RoomStoreService
       if (this.rooms.has(roomId)) continue;
       const room = deserializeRoom(json);
       if (!room || room.roomId !== roomId) continue;
+      // finish 는 Spring 저장이 끝난 방이다. 지우다 실패해 남은 것이므로 되살리지 않는다(리뷰 S3)
+      if (room.stage === 'finish') {
+        void this.removeSnapshot(roomId);
+        continue;
+      }
       // 준비 카운트다운 타이머는 프로세스와 함께 사라졌다.
       // 클라이언트도 재연결 시 stage-changed 를 받아 준비를 해제하므로 서버도 맞춘다.
       for (const p of room.participants.values()) p.ready = false;
@@ -83,7 +93,38 @@ export class RoomStoreService
   async onModuleDestroy(): Promise<void> {
     for (const room of this.rooms.values())
       if (room.timeout) clearTimeout(room.timeout);
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
     await this.flush();
+    await Promise.all(
+      Array.from(this.pendingRemovals).map((id) =>
+        this.removeSnapshot(id, false),
+      ),
+    );
+  }
+
+  private scheduleRetry(): void {
+    if (this.retryTimer) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      for (const id of Array.from(this.pendingRemovals))
+        if (!this.rooms.has(id)) void this.removeSnapshot(id);
+        else this.pendingRemovals.delete(id);
+      void this.flush();
+    }, this.snapshotRetryMs);
+    this.retryTimer.unref?.();
+  }
+
+  /** 스냅샷을 지운다. 실패하면 다시 시도 목록에 넣는다 */
+  private async removeSnapshot(roomId: Id, retry = true): Promise<void> {
+    if (!this.snapshots?.enabled) return;
+    const ok = await this.snapshots.remove(roomId);
+    if (ok || this.rooms.has(roomId)) {
+      this.pendingRemovals.delete(roomId);
+      return;
+    }
+    this.pendingRemovals.add(roomId);
+    if (retry) this.scheduleRetry();
   }
 
   private markDirty(roomId: Id): void {
@@ -100,9 +141,18 @@ export class RoomStoreService
     const ids = Array.from(this.dirty);
     this.dirty.clear();
     await Promise.all(
-      ids.map((id) => {
+      ids.map(async (id) => {
         const room = this.rooms.get(id);
-        return room ? this.snapshots!.save(id, serializeRoom(room)) : undefined;
+        if (!room) return;
+        const ok = await this.snapshots!.save(id, serializeRoom(room));
+        if (!ok) {
+          // 저장 실패: 다음 변경이 없어도 다시 쓴다(리뷰 S8)
+          if (this.rooms.has(id)) this.dirty.add(id);
+          this.scheduleRetry();
+        } else if (!this.rooms.has(id)) {
+          // 저장하는 동안 방이 지워졌다: 방금 쓴 키를 다시 지운다
+          await this.removeSnapshot(id);
+        }
       }),
     );
   }
@@ -162,6 +212,8 @@ export class RoomStoreService
     };
 
     this.rooms.set(roomId, room);
+    // 같은 id 의 옛 방 삭제가 밀려 있으면 취소한다(새 방 저장이 키를 덮는다)
+    this.pendingRemovals.delete(roomId);
     this.logger.log(
       `Created new room: ${roomId}, stage: ${room.stage} ${JSON.stringify(
         Array.from(room.recentMenu.entries()),
@@ -186,7 +238,7 @@ export class RoomStoreService
     const deleted = this.rooms.delete(roomId);
     this.dirty.delete(roomId);
     this.transitioning.delete(roomId);
-    if (this.snapshots?.enabled) void this.snapshots.remove(roomId);
+    void this.removeSnapshot(roomId);
     if (deleted) {
       this.logger.log(`Deleted room: ${roomId}`);
     }
@@ -477,7 +529,11 @@ export class RoomStoreService
     dissolve: boolean,
   ): 'left' | 'dissolved' | 'noop' {
     const room = this.rooms.get(roomId);
-    if (!room) return 'noop';
+    if (!room) {
+      // 메모리에 없어도(복원 실패 등) 스냅샷이 남아 있을 수 있다. 다음 재시작에 되살아나지 않게 지운다(리뷰 S3)
+      if (dissolve) void this.removeSnapshot(roomId);
+      return 'noop';
+    }
     if (dissolve) {
       this.eventEmitter.emit('room-dissolved', {
         roomId,

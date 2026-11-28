@@ -7,8 +7,9 @@ export const ROOM_SNAPSHOT_STORE = 'ROOM_SNAPSHOT_STORE';
 export interface RoomSnapshotStore {
   readonly enabled: boolean;
   loadAll(roomIdPrefix: string): Promise<Array<[string, string]>>;
-  save(roomId: string, json: string): Promise<void>;
-  remove(roomId: string): Promise<void>;
+  /** 성공하면 true. 실패해도 throw 하지 않는다(호출한 쪽이 다시 시도한다) */
+  save(roomId: string, json: string): Promise<boolean>;
+  remove(roomId: string): Promise<boolean>;
 }
 
 /** REDIS_URL 이 없을 때: 지금까지처럼 메모리에만 둔다 */
@@ -18,10 +19,10 @@ export class NoopRoomSnapshotStore implements RoomSnapshotStore {
     return Promise.resolve([] as Array<[string, string]>);
   }
   save() {
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
   remove() {
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
 }
 
@@ -29,18 +30,29 @@ export class NoopRoomSnapshotStore implements RoomSnapshotStore {
 export class MemoryRoomSnapshotStore implements RoomSnapshotStore {
   readonly enabled = true;
   readonly data = new Map<string, string>();
+  /** 시험용: 다음 N 번의 save/remove 를 실패시킨다(Redis 순간 끊김) */
+  failSaves = 0;
+  failRemoves = 0;
   loadAll(prefix: string) {
     return Promise.resolve(
       Array.from(this.data.entries()).filter(([k]) => k.startsWith(prefix)),
     );
   }
   save(roomId: string, json: string) {
+    if (this.failSaves > 0) {
+      this.failSaves--;
+      return Promise.resolve(false);
+    }
     this.data.set(roomId, json);
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
   remove(roomId: string) {
+    if (this.failRemoves > 0) {
+      this.failRemoves--;
+      return Promise.resolve(false);
+    }
     this.data.delete(roomId);
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
 }
 
@@ -139,21 +151,25 @@ export class RedisRoomSnapshotStore
     }
   }
 
-  async save(roomId: string, json: string): Promise<void> {
+  async save(roomId: string, json: string): Promise<boolean> {
     try {
       await this.ready();
       await this.redis.set(this.key(roomId), json, 'EX', this.opts.ttlSeconds);
+      return true;
     } catch (e) {
       this.warn(`방 상태 저장 실패(${roomId}): ${(e as Error).message}`);
+      return false;
     }
   }
 
-  async remove(roomId: string): Promise<void> {
+  async remove(roomId: string): Promise<boolean> {
     try {
       await this.ready();
       await this.redis.del(this.key(roomId));
+      return true;
     } catch (e) {
       this.warn(`방 상태 삭제 실패(${roomId}): ${(e as Error).message}`);
+      return false;
     }
   }
 
