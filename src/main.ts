@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
 import { ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './domain/common/http-error.filter';
+import { clientOrigins } from './cors-origins';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -23,11 +24,7 @@ async function bootstrap() {
 
   // CORS 설정
   app.enableCors({
-    origin: [
-      configService.get<string>('CLIENT_ORIGIN') ??
-        'https://bab-muk-dang-client.vercel.app',
-      'http://localhost:3001',
-    ],
+    origin: clientOrigins(),
     credentials: true,
     exposedHeaders: ['Authorization'],
   });

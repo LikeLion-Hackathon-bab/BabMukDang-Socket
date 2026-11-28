@@ -33,10 +33,12 @@ import { ExcludeMenuDto } from 'src/domain/exclude-menu/dto';
 import { RestaurantActionDto } from 'src/domain/restaurant/dto';
 import { LocationCandidateDto, CandidateIdDto } from 'src/domain/location/dto';
 
+import { socketCorsOrigin } from 'src/cors-origins';
+
 @WebSocketGateway({
   namespace: '/invitation',
   cors: {
-    origin: '*',
+    origin: socketCorsOrigin,
     methods: ['GET', 'POST'],
   },
 })
