@@ -14,6 +14,7 @@ describe('announcement restaurant confirmation', () => {
       getParticipants: () => new Map(),
       setStage: jest.fn(),
       getStage: () => 'restaurant',
+      getRoom: () => undefined,
       beginTransition: () => true,
       endTransition: jest.fn(),
       deleteRoom: jest.fn(),
