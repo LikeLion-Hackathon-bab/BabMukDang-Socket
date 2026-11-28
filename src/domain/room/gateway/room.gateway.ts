@@ -18,6 +18,7 @@ import {
   toKstOffsetDateTime,
 } from '../services/meeting-time';
 import type { Restaurant } from 'src/domain/restaurant/types/restaurant.type';
+import { checkStageOutcome, type StageRetry } from '../services/stage-outcome';
 
 @Injectable()
 export class RoomHandlers {
@@ -153,6 +154,15 @@ export class RoomHandlers {
           (entry) => entry[1] === current + 1,
         )?.[0];
 
+        // F55·F60: 결과가 정해지지 않았으면(동점, 공통 날짜·시간 없음) 다음 단계로 가지 않는다
+        const retry = checkStageOutcome(
+          this.roomService.getRoom(roomId),
+          stage,
+        );
+        if (retry) {
+          this.retryStage(server, roomId, stage, retry);
+          return;
+        }
         if (current < finalStageNum && nextStage) {
           if (nextStage === 'finish') await persist(roomId);
           this.roomService.setStage(
@@ -204,6 +214,43 @@ export class RoomHandlers {
       (event: { roomId: string; stage: S }) => {
         void progress(event);
       },
+    );
+  }
+
+  private retryStage(
+    server: Server,
+    roomId: string,
+    stage: string,
+    retry: StageRetry,
+  ) {
+    const room = this.roomService.getRoom(roomId);
+    if (!room) return;
+    if (retry.retryStage !== stage) {
+      // 공통 시간 없음 → 날짜부터 다시. 날짜 선택은 남겨 고칠 수 있게, 시간 선택·확정값은 비운다
+      room.time = undefined;
+      room.final.time = '';
+      room.final.date = '';
+      this.roomService.setStage(
+        roomId,
+        retry.retryStage as AnnouncementStage | InvitationStage,
+      );
+    }
+    this.roomService.resetParticipantsReadyState(roomId);
+    this.roomService
+      .getEventEmitter()
+      .emit('request-initial-state', { roomId, stage: retry.retryStage });
+    server.to(roomId).emit('stage-changed', {
+      stage: retry.retryStage,
+      updatedAt: Date.now(),
+      reason: retry.reason,
+      message: retry.message,
+    });
+    server.to(roomId).emit('ready-state-changed', {
+      readyCount: 0,
+      participantCount: this.roomService.getParticipantCount(roomId),
+    });
+    this.logger.log(
+      `Room ${roomId} stays for re-selection at ${retry.retryStage} (${retry.reason} at ${stage})`,
     );
   }
 
