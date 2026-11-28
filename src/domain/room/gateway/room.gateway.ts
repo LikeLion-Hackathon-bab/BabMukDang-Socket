@@ -12,7 +12,7 @@ import {
 } from 'src/domain/common/types/stage';
 import { ReadyStateDto } from '../dto/request.dto';
 import { FinalState } from '../types/room.type';
-import { ServerService } from '../services/server.service';
+import { RoomClosedError, ServerService } from '../services/server.service';
 import {
   fromOffsetDateTime,
   toKstOffsetDateTime,
@@ -73,6 +73,56 @@ export class RoomHandlers {
     //   timestamp: Date.now(),
     // });
   }
+  /** 참여 취소·방 해산을 방에 알린다 (contracts/room-leave-events.md) */
+  handleRoomLifecycle(server: Server) {
+    const emitter = this.roomService.getEventEmitter();
+    emitter.on(
+      'room-participant-left',
+      ({ roomId, userId }: { roomId: string; userId: string }) => {
+        void server
+          .in(roomId)
+          .fetchSockets()
+          .then((sockets) => {
+            for (const s of sockets)
+              if ((s.data as { userId?: string })?.userId === userId) {
+                s.emit('room-left', { roomId: roomId.split(':')[1] });
+                s.disconnect(true);
+              }
+          })
+          .catch(() => {});
+        const participants = Array.from(
+          this.roomService.getParticipants(roomId).values(),
+        );
+        const room = this.roomService.getRoom(roomId);
+        server.to(roomId).emit('leave-room', participants);
+        // 기존 Client 는 이 응답의 participants 로 명단을 갱신한다(입장 때와 같은 모양)
+        server.to(roomId).emit('initial-state-response', {
+          participants,
+          locationInitial: room?.locationInitial,
+          meetingAt: room?.meetingAt,
+        });
+        server.to(roomId).emit('ready-state-changed', {
+          readyCount: 0,
+          participantCount: participants.length,
+        });
+      },
+    );
+    emitter.on(
+      'room-dissolved',
+      ({ roomId, reason }: { roomId: string; reason: string }) => {
+        server.to(roomId).emit('room-dissolved', {
+          roomId: roomId.split(':')[1],
+          reason,
+          message:
+            reason === 'participant-left'
+              ? '함께하던 친구가 나가서 대기실이 닫혔어요.'
+              : '이 대기실은 더 이상 진행할 수 없어요.',
+        });
+        server.in(roomId).disconnectSockets(true);
+      },
+    );
+  }
+
   handleInitialStateResponse(server: Server) {
     const emitter = this.roomService.getEventEmitter();
     emitter.on(
@@ -194,6 +244,12 @@ export class RoomHandlers {
           this.roomService.deleteRoom(roomId);
         }
       } catch (error) {
+        if (error instanceof RoomClosedError) {
+          // 공고가 다시 모집 중이거나 초대가 취소됨: 확정이 아니므로 방을 닫는다
+          this.logger.log(`Room ${roomId} closed by Spring: ${error.message}`);
+          this.roomService.closeRoom(roomId, 'closed-by-server');
+          return;
+        }
         this.roomService.resetParticipantsReadyState(roomId);
         server.to(roomId).emit('meeting-save-failed');
         server.to(roomId).emit('ready-state-changed', {

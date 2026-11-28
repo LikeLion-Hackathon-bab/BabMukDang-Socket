@@ -7,6 +7,7 @@ import {
   Param,
   Post,
   Query,
+  HttpCode,
 } from '@nestjs/common';
 import { RoomKeyGuard } from './room-key.guard';
 import { AppService } from './app.service';
@@ -17,6 +18,7 @@ import {
   AnnouncementResultRequestDto,
   InvitationRequestDto,
   InvitationResultRequestDto,
+  LeaveRoomDto,
 } from './domain/room/dto/server';
 import { ANNOUNCEMENT_ROOM_STORE } from './namespace/announcement.handlers';
 import { INVITATION_ROOM_STORE } from './namespace/invitation.handlers';
@@ -61,6 +63,34 @@ export class AppController {
   ) {
     const roomId = `announcement:${announcementId}`;
     return this.announcementStore.seedFromAnnouncement(roomId, body);
+  }
+  @Post('api/announcement/:announcementId/leave')
+  @HttpCode(200)
+  leaveAnnouncement(
+    @Param('announcementId') announcementId: string,
+    @Body() body: LeaveRoomDto,
+  ) {
+    return {
+      result: this.announcementStore.leaveRoom(
+        `announcement:${announcementId}`,
+        body.userId,
+        body.dissolve === true,
+      ),
+    };
+  }
+  @Post('api/invitation/:invitationId/leave')
+  @HttpCode(200)
+  leaveInvitation(
+    @Param('invitationId') invitationId: string,
+    @Body() body: LeaveRoomDto,
+  ) {
+    return {
+      result: this.invitationStore.leaveRoom(
+        `invitation:${invitationId}`,
+        body.userId,
+        body.dissolve === true,
+      ),
+    };
   }
   @Post('api/invitation/:invitationId')
   setUpInvitation(

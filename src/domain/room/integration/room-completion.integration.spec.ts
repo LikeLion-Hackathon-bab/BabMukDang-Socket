@@ -282,19 +282,24 @@ describe('초대방 결과 저장 (contracts/invitation-result.md)', () => {
     expect(ctx.count('final-state-response')).toBe(1);
   });
 
-  it('(i4) 409 without data(수락되지 않은 초대)·결과 누락은 finish 로 가지 않는다', async () => {
+  it('(i4) 409 without data(취소·수락 안 됨) → 확정 아님: 방을 닫는다. 결과 누락은 finish 로 가지 않는다', async () => {
     ctx = await setupInvitation();
-    ctx.spring.acceptedInvitations.clear();
     const em = ctx.store.getEventEmitter();
-    em.emit('ready-state-completed', { roomId: INV, stage: 'restaurant' });
-    await sleep(500);
-    expect(ctx.count('meeting-save-failed')).toBe(1);
-    ctx.spring.acceptedInvitations.add('3');
     ctx.store.getFinalState(INV)!.time = '';
     em.emit('ready-state-completed', { roomId: INV, stage: 'restaurant' });
     await sleep(300);
-    expect(ctx.count('meeting-save-failed')).toBe(2);
+    expect(ctx.count('meeting-save-failed')).toBe(1); // 결과 누락: Spring 호출 없이 실패 안내
+    expect(ctx.spring.invitationCalls).toHaveLength(0);
+    ctx.store.getFinalState(INV)!.time = '13:00–14:00';
+    ctx.spring.acceptedInvitations.clear();
+    const dissolved: unknown[] = [];
+    em.on('room-dissolved', (e) => dissolved.push(e));
+    em.emit('ready-state-completed', { roomId: INV, stage: 'restaurant' });
+    await sleep(500);
     expect(ctx.spring.invitationCalls).toHaveLength(1);
+    expect(dissolved).toEqual([{ roomId: INV, reason: 'closed-by-server' }]);
+    expect(ctx.store.getRoom(INV)).toBeUndefined();
     expect(ctx.stages()).toEqual([]);
+    expect(ctx.count('meeting-save-failed')).toBe(1);
   });
 });

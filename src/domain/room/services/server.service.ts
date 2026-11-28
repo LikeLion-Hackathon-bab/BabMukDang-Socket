@@ -7,6 +7,14 @@ import {
   InvitationResultRequestDto,
 } from '../dto/server';
 
+/** 결과 저장 409 인데 data(저장값)가 없음: 확정이 아니라 방이 더 이상 유효하지 않음 */
+export class RoomClosedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RoomClosedError';
+  }
+}
+
 export interface InvitationMeetingResult {
   meetingAt: string; // 오프셋 포함 ISO 8601 (예: 2026-12-01T13:00:00+09:00)
   location: string;
@@ -82,9 +90,14 @@ export class ServerService {
       );
       return undefined;
     } catch (e) {
-      const err = e as AxiosError<{ data?: T }>;
-      const stored = err.response?.data?.data;
-      if (err.response?.status === 409 && stored) return stored;
+      const err = e as AxiosError<{ data?: T; message?: string }>;
+      if (err.response?.status === 409) {
+        const stored = err.response.data?.data;
+        if (stored) return stored;
+        throw new RoomClosedError(
+          err.response.data?.message ?? 'Room result rejected (409)',
+        );
+      }
       throw e;
     }
   }

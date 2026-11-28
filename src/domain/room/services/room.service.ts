@@ -436,6 +436,53 @@ export class RoomStoreService
     return this.eventEmitter;
   }
 
+  /** 서버 쪽 사정으로 방을 닫는다(결과 저장 409 data 없음 등). 해산 이벤트 후 삭제 */
+  closeRoom(roomId: string, reason: string): void {
+    if (!this.rooms.has(roomId)) return;
+    this.eventEmitter.emit('room-dissolved', { roomId, reason });
+    this.deleteRoom(roomId);
+  }
+
+  /**
+   * Spring 의 참여 취소 알림(contracts/participation-cancel.md §3).
+   * dissolve=false: 그 사용자를 명단·투표·선택에서 빼고 모두의 준비를 푼다.
+   * dissolve=true: 방을 지운다(스냅샷 포함). 같은 id 로 다시 시드가 오면 새 방이 된다.
+   * 방이 없으면 아무것도 하지 않는다(멱등). 알림은 이벤트로 내보내 게이트웨이가 방송한다.
+   */
+  leaveRoom(
+    roomId: string,
+    userId: string,
+    dissolve: boolean,
+  ): 'left' | 'dissolved' | 'noop' {
+    const room = this.rooms.get(roomId);
+    if (!room) return 'noop';
+    if (dissolve) {
+      this.eventEmitter.emit('room-dissolved', {
+        roomId,
+        reason: 'participant-left',
+        userId,
+      });
+      this.deleteRoom(roomId);
+      return 'dissolved';
+    }
+    if (!room.participants.has(userId)) return 'noop';
+    room.participants.delete(userId);
+    if (room.timeout) clearTimeout(room.timeout);
+    room.timeout = undefined;
+    room.location?.votes.forEach((set) => set.delete(userId));
+    room.menu?.menuPerUserSelections.forEach((set) => set.delete(userId));
+    room.restaurant?.restaurantUserList.delete(userId);
+    room.excludeMenu?.userExclusions.delete(userId);
+    room.date?.pickedByUser.delete(userId);
+    room.time?.pickedByUser.delete(userId);
+    room.recentMenu.delete(userId);
+    for (const p of room.participants.values()) p.ready = false;
+    this.bump(room);
+    this.logger.log(`User ${userId} left room ${roomId} (by Spring)`);
+    this.eventEmitter.emit('room-participant-left', { roomId, userId });
+    return 'left';
+  }
+
   /**
    * 이미 있는 방에 다시 시드가 오면(완료 이벤트 재전달, 입장 API) 진행 상태는 그대로 두고
    * 빠진 참가자만 더한다. Spring 이 커밋 전에 완료 이벤트를 발행해 마지막 참가자가
