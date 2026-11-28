@@ -365,14 +365,24 @@ export class RoomHandlers {
     );
   }
 
-  /** Spring 이 이미 다른 값으로 확정했다고 하면(409 data) 그 값을 방 확정값으로 맞춘다 */
-  private adoptRestaurant(final: FinalState, name: string): boolean {
+  /**
+   * Spring 이 이미 다른 값으로 확정했다고 하면(409 data) 그 값을 방 확정값으로 맞춘다.
+   * 같은 이름의 후보가 있으면 그 후보를 통째로 쓰고, 없으면 id·좌표·주소를 비운다(리뷰 S6).
+   */
+  private adoptRestaurant(
+    roomId: string,
+    final: FinalState,
+    name: string,
+  ): boolean {
     const current = final.restaurant as
       | (Restaurant & { place_name?: string })
       | undefined;
     if (current?.name === name) return false;
+    const known = this.roomService
+      .getRoom(roomId)
+      ?.restaurant?.initialRestaurants.find((r) => r.name === name);
     final.restaurant = {
-      ...(current ?? { id: '', lat: 0, lng: 0 }),
+      ...(known ?? { id: '', lat: 0, lng: 0 }),
       name,
       place_name: name, // 화면은 place_name 으로 표시한다
     } as unknown as Restaurant;
@@ -392,7 +402,10 @@ export class RoomHandlers {
     // 보낸 값으로 고정한다. 기다리는 동안 바뀌었으면 Spring 에 저장된 값으로 되돌려 알린다(S1)
     const drifted = JSON.stringify(final.restaurant) !== JSON.stringify(sent);
     final.restaurant = sent;
-    if (stored?.restaurant && this.adoptRestaurant(final, stored.restaurant)) {
+    if (
+      stored?.restaurant &&
+      this.adoptRestaurant(roomId, final, stored.restaurant)
+    ) {
       this.logger.log(
         `Room ${roomId} adopted stored restaurant from Spring (409)`,
       );
@@ -445,7 +458,8 @@ export class RoomHandlers {
       return;
     }
     if (stored.restaurant)
-      changed = this.adoptRestaurant(final, stored.restaurant) || changed;
+      changed =
+        this.adoptRestaurant(roomId, final, stored.restaurant) || changed;
     if (
       stored.location &&
       final.location &&

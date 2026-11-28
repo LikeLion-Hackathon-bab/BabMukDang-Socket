@@ -166,6 +166,37 @@ describe('공고 409 저장값 채택 (contracts/meeting-result.md)', () => {
     expect([fin.name, fin.place_name]).toEqual(['초밥집', '초밥집']);
     expect(ctx.count('final-state-response')).toBe(1);
   });
+
+  it('(S6) 409 저장값과 같은 이름의 후보가 있으면 id·좌표·주소까지 그 후보로 채택한다', async () => {
+    ctx = await setup();
+    ctx.spring.stored.set('77', '초밥집');
+    const room = ctx.store.getRoom(ROOM)!;
+    room.restaurant = {
+      initialRestaurants: [
+        { id: 'D', name: '돈까스집', lat: 1, lng: 1, address: 'd' },
+        { id: 'S', name: '초밥집', lat: 37.5, lng: 127.1, address: '초밥로 1' },
+      ],
+      restaurantUserList: new Map(),
+    } as never;
+    ctx.store.getFinalState(ROOM)!.restaurant = {
+      id: 'D',
+      name: '돈까스집',
+      lat: 1,
+      lng: 1,
+      address: 'd',
+    } as never;
+    ctx.readyAll();
+    await sleep(3500);
+    expect(ctx.stageChanges()).toEqual(['finish']);
+    expect(ctx.store.getFinalState(ROOM)!.restaurant).toMatchObject({
+      id: 'S',
+      name: '초밥집',
+      lat: 37.5,
+      lng: 127.1,
+      address: '초밥로 1',
+      place_name: '초밥집',
+    });
+  });
 });
 
 const INV = 'invitation:3';
