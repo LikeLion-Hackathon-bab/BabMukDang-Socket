@@ -13,6 +13,7 @@ import {
 import { ReadyStateDto } from '../dto/request.dto';
 import { FinalState } from '../types/room.type';
 import { ServerService } from '../services/server.service';
+import { toKstMeeting } from '../services/meeting-time';
 
 @Injectable()
 export class RoomHandlers {
@@ -228,23 +229,22 @@ export class RoomHandlers {
             // 최종 단계에서는 추가 진행 없음. 필요 시 완료 이벤트 방송 가능
             this.logger.log(`Room ${roomId} already at final stage ${current}`);
             const finalState = this.roomService.getFinalState(roomId);
-            const finalTime = finalState?.time;
-            let meetingDate = '';
-            let meetingTime = '';
-            if (finalTime) {
-              const dateObj = new Date(finalTime);
-              meetingDate = dateObj.toISOString().split('T')[0];
-              meetingTime =
-                dateObj.toISOString().split('T')[1]?.slice(0, 5) ?? '';
-            }
+            // 벽시계 값('YY. MM. DD', 'HH:mm–HH:mm')을 UTC 로 옮기지 않고 KST 그대로 보낸다
+            const { meetingDate, meetingTime } = toKstMeeting(
+              finalState?.date,
+              finalState?.time,
+            );
             void this.serverService.postInvitationResult(roomId, {
               location: finalState?.location?.placeName ?? '',
               meetingDate,
               meetingTime,
               author: {
+                // participants 는 Map 이다(배열 인덱스로 읽으면 항상 빈 값)
                 name:
-                  this.roomService.getRoom(roomId)?.participants?.[0]?.name ??
-                  '',
+                  Array.from(
+                    this.roomService.getRoom(roomId)?.participants?.values() ??
+                      [],
+                  )[0]?.username ?? '',
               },
             });
             this.roomService.deleteRoom(roomId);

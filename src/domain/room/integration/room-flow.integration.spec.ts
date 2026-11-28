@@ -318,4 +318,34 @@ describe('방 상태: 재시작·재연결·동시성', () => {
     );
     expect(fin.finalState.location!.id).toBe(byName['cand-12']);
   });
+
+  it('(e) 같은 시드(두 큐로 2회 소비된 완료 이벤트·입장 API)가 동시에·나중에 와도 방은 하나, 진행은 유지', async () => {
+    const roomId = `${Date.now() % 100000}5`;
+    const booted = await bootApp(0, snapshotOverride());
+    app = booted.app;
+    const statuses = await Promise.all([
+      seedAnnouncement(booted.port, roomId, users),
+      seedAnnouncement(booted.port, roomId, users),
+    ]);
+    expect(statuses).toEqual([201, 201]);
+    clients = users.map((u) => connectUser(booted.port, u, roomId));
+    await Promise.all(clients.map((c) => connected(c)));
+    clients[0].socket.emit('chat-message', { text: 'keep' });
+    await allReadyAndAdvance(clients, 'location');
+    await Promise.all([
+      seedAnnouncement(booted.port, roomId, users),
+      seedAnnouncement(booted.port, roomId, users),
+    ]);
+    const late = connectUser(booted.port, '12', roomId);
+    clients.push(late);
+    const st = await late.waitFor<{ stage: string }>('stage-changed');
+    expect(st.stage).toBe('location');
+    const hist = await late.waitFor<ChatMsg[]>('chat-messages');
+    expect(hist.map((m) => m.text)).toEqual(['keep']);
+    const parts = await late.waitFor<{ participants?: unknown[] }>(
+      'initial-state-response',
+      (p) => Array.isArray(p.participants),
+    );
+    expect(parts.participants).toHaveLength(3);
+  });
 });
