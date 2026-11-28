@@ -9,6 +9,8 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   app.useGlobalFilters(new AllExceptionsFilter());
+  // SIGTERM(배포·재시작) 시 대기 중인 방 상태 스냅샷을 쓰고 Redis 연결을 닫는다
+  app.enableShutdownHooks();
 
   // 전역 ValidationPipe 설정
   app.useGlobalPipes(

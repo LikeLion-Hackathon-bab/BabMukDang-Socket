@@ -99,6 +99,20 @@ export class RoomHandlers {
       stage: AnnouncementStage;
     }) => {
       if (!roomId.startsWith('announcement:')) return;
+      // 늦게 도착한 같은 단계의 완료(이미 다음 단계로 넘어감)는 무시
+      if (this.roomService.getStage(roomId) !== stage) {
+        this.logger.log(
+          `Ignored stale completion for room ${roomId} (stage ${stage})`,
+        );
+        return;
+      }
+      // Spring 저장을 기다리는 동안 같은 완료가 다시 와도 한 번만 처리
+      if (!this.roomService.beginTransition(roomId)) {
+        this.logger.log(
+          `Ignored duplicate completion for room ${roomId} (stage ${stage})`,
+        );
+        return;
+      }
       try {
         const current = AnnouncementStageMap[stage];
         // TODO: 동점 처리 로직 고려 (예: 특정 도메인의 투표 결과가 동점인 경우 재투표/타이브레이커)
@@ -154,6 +168,8 @@ export class RoomHandlers {
         this.logger.error(
           `Failed to auto progress stage for room ${roomId}: ${errorMessage}`,
         );
+      } finally {
+        this.roomService.endTransition(roomId);
       }
     };
     emitter.on(
@@ -175,6 +191,7 @@ export class RoomHandlers {
         stage: AnnouncementStage | InvitationStage;
       }) => {
         if (!roomId.startsWith('invitation:')) return;
+        if (this.roomService.getStage(roomId) !== stage) return;
         try {
           const current = InvitationStageMap[stage];
           // TODO: 동점 처리 로직 고려 (예: 특정 도메인의 투표 결과가 동점인 경우 재투표/타이브레이커)

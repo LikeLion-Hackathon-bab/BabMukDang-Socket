@@ -5,6 +5,7 @@ import type { UserInfo } from 'src/domain/common/types';
 import { WsLogger } from 'src/domain/common/logger/ws-logger.service';
 import { RoomStoreService } from 'src/domain/room/services/room.service';
 import { Socket } from 'socket.io';
+import { randomUUID } from 'node:crypto';
 
 @Injectable()
 export class ChatHandlers {
@@ -21,7 +22,8 @@ export class ChatHandlers {
     const { text } = payload;
     // ChatSendDto를 ChatMessageDto로 변환
     const chatMessage: ChatMessageDto = {
-      messageId: `msg_${Date.now()}`,
+      // 같은 ms 에 온 메시지도 구별되도록(형식 msg_<시각>_<임의값>, 문자열 계약 유지)
+      messageId: `msg_${Date.now()}_${randomUUID().slice(0, 8)}`,
       roomId,
       user: userInfo,
       text,

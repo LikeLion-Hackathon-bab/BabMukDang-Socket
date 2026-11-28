@@ -1,4 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  type OnApplicationBootstrap,
+  type OnModuleDestroy,
+  Optional,
+} from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { ChatMessage } from 'src/domain/chat/types/chat.type';
 import { ExtendedParticipant } from '../types/room.type';
@@ -14,20 +20,109 @@ import {
   AnnouncementRequestDto,
   InvitationRequestDto,
 } from 'src/domain/room/dto/server';
+import {
+  ROOM_SNAPSHOT_STORE,
+  type RoomSnapshotStore,
+} from '../persistence/room-snapshot.store';
+import {
+  deserializeRoom,
+  serializeRoom,
+} from '../persistence/room-snapshot.codec';
 @Injectable()
-export class RoomStoreService {
+export class RoomStoreService
+  implements OnApplicationBootstrap, OnModuleDestroy
+{
   private readonly rooms: Map<Id, RoomStore> = new Map();
   private readonly eventEmitter: EventEmitter = new EventEmitter();
+  /** 단계 전이(특히 Spring 저장 대기) 중인 방. 같은 완료가 겹쳐 와도 한 번만 처리 */
+  private readonly transitioning = new Set<Id>();
+  private readonly dirty = new Set<Id>();
+  private flushScheduled = false;
   isInvitation: boolean;
   constructor(
     private readonly logger: WsLogger,
     private readonly serverService: ServerService,
-  ) {}
+    @Optional()
+    @Inject(ROOM_SNAPSHOT_STORE)
+    private readonly snapshots?: RoomSnapshotStore,
+  ) {
+    // 단계별 최종값은 bump 없이 final 에 기록되므로 응답 시점에도 저장한다
+    this.eventEmitter.on('final-state-response', ({ roomId }: { roomId: Id }) =>
+      this.markDirty(roomId),
+    );
+  }
+
+  // ===== 스냅샷 영속화 =====
+  private get namespacePrefix(): string | undefined {
+    if (this.isInvitation === true) return 'invitation:';
+    if (this.isInvitation === false) return 'announcement:';
+    return undefined;
+  }
+
+  /** 앱이 연결을 받기 전에(listen 전) 저장된 방 상태를 되살린다 */
+  async onApplicationBootstrap(): Promise<void> {
+    const prefix = this.namespacePrefix;
+    if (!this.snapshots?.enabled || !prefix) return;
+    const saved = await this.snapshots.loadAll(prefix);
+    let restored = 0;
+    for (const [roomId, json] of saved) {
+      if (this.rooms.has(roomId)) continue;
+      const room = deserializeRoom(json);
+      if (!room || room.roomId !== roomId) continue;
+      // 준비 카운트다운 타이머는 프로세스와 함께 사라졌다.
+      // 클라이언트도 재연결 시 stage-changed 를 받아 준비를 해제하므로 서버도 맞춘다.
+      for (const p of room.participants.values()) p.ready = false;
+      this.rooms.set(roomId, room);
+      restored++;
+    }
+    if (restored > 0)
+      this.logger.log(`Restored ${restored} room(s) from snapshot (${prefix})`);
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    for (const room of this.rooms.values())
+      if (room.timeout) clearTimeout(room.timeout);
+    await this.flush();
+  }
+
+  private markDirty(roomId: Id): void {
+    if (!this.snapshots?.enabled || !this.rooms.has(roomId)) return;
+    this.dirty.add(roomId);
+    if (this.flushScheduled) return;
+    this.flushScheduled = true;
+    setImmediate(() => void this.flush());
+  }
+
+  private async flush(): Promise<void> {
+    this.flushScheduled = false;
+    if (!this.snapshots?.enabled) return;
+    const ids = Array.from(this.dirty);
+    this.dirty.clear();
+    await Promise.all(
+      ids.map((id) => {
+        const room = this.rooms.get(id);
+        return room ? this.snapshots!.save(id, serializeRoom(room)) : undefined;
+      }),
+    );
+  }
+
+  /** 단계 전이 시작. 이미 진행 중이면 false */
+  beginTransition(roomId: Id): boolean {
+    if (this.transitioning.has(roomId)) return false;
+    this.transitioning.add(roomId);
+    return true;
+  }
+
+  endTransition(roomId: Id): void {
+    this.transitioning.delete(roomId);
+  }
+
   /**
    * 방 생성 또는 기존 방 반환
    */
   ensureRoom(roomId: string): RoomStore {
     let room = this.rooms.get(roomId);
+    if (room) return room;
 
     room = {
       roomId,
@@ -68,7 +163,12 @@ export class RoomStoreService {
    * 방 삭제
    */
   deleteRoom(roomId: string): boolean {
+    const room = this.rooms.get(roomId);
+    if (room?.timeout) clearTimeout(room.timeout);
     const deleted = this.rooms.delete(roomId);
+    this.dirty.delete(roomId);
+    this.transitioning.delete(roomId);
+    if (this.snapshots?.enabled) void this.snapshots.remove(roomId);
     if (deleted) {
       this.logger.log(`Deleted room: ${roomId}`);
     }
@@ -81,6 +181,7 @@ export class RoomStoreService {
   bump(room: RoomStore): void {
     room.version += 1;
     room.updatedAt = Date.now();
+    this.markDirty(room.roomId);
   }
 
   /**
@@ -301,7 +402,7 @@ export class RoomStoreService {
 
     for (const [roomId, room] of this.rooms.entries()) {
       if (room.updatedAt < cutoffTime && room.participants.size === 0) {
-        this.rooms.delete(roomId);
+        this.deleteRoom(roomId);
         cleanedCount++;
         this.logger.log(`Cleaned up inactive room: ${roomId}`);
       }
@@ -322,6 +423,7 @@ export class RoomStoreService {
     room.updatedAt = Date.now();
     room.participants.clear();
     room.chat = [];
+    this.markDirty(roomId);
 
     this.logger.log(`Room ${roomId} reset`);
   }
@@ -356,7 +458,6 @@ export class RoomStoreService {
     // 최근 메뉴 세팅
     room.recentMenu = new Map(dto.recentMenu.map((r) => [r.userId, r.menu]));
     this.bump(room);
-    console.log(room);
   }
 
   /**

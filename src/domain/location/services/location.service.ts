@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { BaseService } from '../../common/base.service';
 import { Id } from 'src/domain/common/types';
 import { LocationCandidateDto } from 'src/domain/location/dto/request.dto';
@@ -318,7 +319,10 @@ export class LocationService extends BaseService<LocationStore> {
         state.votes.delete(newestCandidateId);
       }
     }
-    const candidateId = Date.now().toString();
+    // 같은 ms 에 여러 명이 추가해도 덮어쓰지 않도록 고유 id (문자열 계약 유지)
+    let candidateId = Date.now().toString();
+    while (state?.candidates.has(candidateId))
+      candidateId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
 
     const candidate: LocationCandidateDto & { userId: string } = {
       id: candidateId,

@@ -13,8 +13,10 @@ import { InvitationModule } from './namespace/invitation.module';
 import { ImageUploadModule } from './domain/image-upload/image-upload.module';
 import { HttpModule } from '@nestjs/axios';
 import { ServerService } from './domain/room/services/server.service';
+import { RoomPersistenceModule } from './domain/room/persistence/room-persistence.module';
 @Module({
   imports: [
+    RoomPersistenceModule,
     AnnouncementModule,
     InvitationModule,
     LoggerModule,
