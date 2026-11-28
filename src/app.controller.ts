@@ -1,12 +1,14 @@
 import {
   Body,
   Controller,
+  UseGuards,
   Get,
   Inject,
   Param,
   Post,
   Query,
 } from '@nestjs/common';
+import { RoomKeyGuard } from './room-key.guard';
 import { AppService } from './app.service';
 import { ServerService } from './domain/room/services/server.service';
 import { RoomStoreService } from './domain/room/services/room.service';
@@ -20,6 +22,7 @@ import { ANNOUNCEMENT_ROOM_STORE } from './namespace/announcement.handlers';
 import { INVITATION_ROOM_STORE } from './namespace/invitation.handlers';
 
 @Controller()
+@UseGuards(RoomKeyGuard)
 export class AppController {
   constructor(
     private readonly appService: AppService,

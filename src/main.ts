@@ -21,14 +21,21 @@ async function bootstrap() {
 
   // CORS 설정
   app.enableCors({
-    origin: ['https://bab-muk-dang-client.vercel.app', 'http://localhost:3001'],
+    origin: [
+      configService.get<string>('CLIENT_ORIGIN') ??
+        'https://bab-muk-dang-client.vercel.app',
+      'http://localhost:3001',
+    ],
     credentials: true,
     exposedHeaders: ['Authorization'],
   });
 
   const port = configService.get<number>('PORT') ?? 3000;
-  await app.listen(port);
+  await app.listen(
+    port,
+    configService.get<string>('BIND_ADDRESS') ?? '0.0.0.0',
+  );
   console.log(`🚀 Application is running on: http://localhost:${port}`);
   console.log(`🔌 Socket.IO server is ready for connections`);
 }
-bootstrap();
+void bootstrap();
