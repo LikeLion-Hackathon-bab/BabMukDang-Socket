@@ -5,6 +5,7 @@ import { InvitationStage } from 'src/domain/common/types/stage';
 import { AnnouncementStage } from 'src/domain/common/types/stage';
 import { RoomStoreService } from 'src/domain/room/services/room.service';
 import { MenuRecommendationResponseDto } from '../dto/menu-recommendation.dto';
+import { buildMenuBallot, MENU_RECOMMEND_TOP_K } from './menu-candidates';
 
 @Injectable()
 export class MenuService extends BaseService<MenuStore> {
@@ -257,10 +258,11 @@ export class MenuService extends BaseService<MenuStore> {
    */
   private async createInitialState(roomId: string): Promise<MenuStore> {
     const menus = await this.getMenuRecommendation(roomId);
-    const availableMenus = menus.map((menu) => ({
-      code: menu.code,
-      label: menu.label,
-    }));
+    // 음식이 아닌 분류·이름 없는 코드를 빼고, 모자라면 다음 추천·기본 메뉴로 채운다
+    const availableMenus = buildMenuBallot(
+      menus,
+      this.roomStore.getFinalState(roomId)?.excludeMenu ?? [],
+    );
     return {
       availableMenus,
       menuPerUserSelections: new Map(),
@@ -424,14 +426,14 @@ export class MenuService extends BaseService<MenuStore> {
           body: JSON.stringify({
             user_ids: Array.from(participants.keys()),
             exclude_menus: excludeMenus,
-            top_k: 6,
+            top_k: MENU_RECOMMEND_TOP_K,
           }),
           headers: {
             'Content-Type': 'application/json',
           },
         },
       ).then((res) => res.json())) as MenuRecommendationResponseDto;
-      return response.recommendations;
+      return response.recommendations ?? [];
     } catch (error) {
       this.logger.error(`Error getting menu recommendation: ${error}`);
       return [];
