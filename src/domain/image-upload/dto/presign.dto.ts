@@ -1,18 +1,23 @@
-// npm i class-validator class-transformer
-import { IsString } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
-export class PresignArticleDto {
+/** 서명 URL 로 올릴 수 있는 최대 크기(바이트) */
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+export class PresignDto {
+  /** 무시한다. 사용자 id 는 토큰 sub 에서 꺼낸다(옛 Client 가 보내므로 받아만 둔다) */
+  @IsOptional()
   @IsString()
-  userId: string;
+  userId?: string;
 
   @IsString()
-  contentType: string; // 실제 체크는 서비스에서 정규화 후 실행
+  contentType: string;
+
+  /** 올릴 파일 크기. 서명에 Content-Length 로 들어가 다른 크기로는 올릴 수 없다 */
+  @IsInt()
+  @Min(1)
+  @Max(MAX_UPLOAD_BYTES)
+  size: number;
 }
 
-export class PresignProfileDto {
-  @IsString()
-  userId: string;
-
-  @IsString()
-  contentType: string; // 실제 체크는 서비스에서 정규화 후 실행
-}
+export class PresignArticleDto extends PresignDto {}
+export class PresignProfileDto extends PresignDto {}

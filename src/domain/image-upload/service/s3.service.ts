@@ -29,6 +29,15 @@ export function s3ClientConfig(
   };
 }
 
+/**
+ * 서명에 넣는 헤더. 형식과 크기가 서명과 다르면 S3 가 403 으로 거부한다(보안 리뷰 S3).
+ * presigned PUT 은 범위 조건을 못 걸므로 크기는 정확한 Content-Length 로 묶는다.
+ */
+export const SIGNED_UPLOAD_HEADERS = new Set([
+  'content-type',
+  'content-length',
+]);
+
 export class S3Service {
   private articleS3 = new S3Client(s3ClientConfig());
   private profileS3 = new S3Client(s3ClientConfig());
@@ -38,30 +47,40 @@ export class S3Service {
   async createArticlePresignedPutUrl(
     key: string,
     contentType: string,
+    size: number,
     expires = 300,
   ) {
     const cmd = new PutObjectCommand({
       Bucket: this.articleBucket,
       Key: key,
       ContentType: contentType,
+      ContentLength: size,
       // 버킷은 private 가정 (CloudFront OAC/OAI로 서빙)
     });
-    const url = await getSignedUrl(this.articleS3, cmd, { expiresIn: expires });
+    const url = await getSignedUrl(this.articleS3, cmd, {
+      expiresIn: expires,
+      signableHeaders: SIGNED_UPLOAD_HEADERS,
+    });
     return url;
   }
 
   async createProfilePresignedPutUrl(
     key: string,
     contentType: string,
+    size: number,
     expires = 300,
   ) {
     const cmd = new PutObjectCommand({
       Bucket: this.profileBucket,
       Key: key,
       ContentType: contentType,
+      ContentLength: size,
       // 버킷은 private 가정 (CloudFront OAC/OAI로 서빙)
     });
-    const url = await getSignedUrl(this.profileS3, cmd, { expiresIn: expires });
+    const url = await getSignedUrl(this.profileS3, cmd, {
+      expiresIn: expires,
+      signableHeaders: SIGNED_UPLOAD_HEADERS,
+    });
     return url;
   }
 }
